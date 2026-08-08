@@ -1,0 +1,24 @@
+# Core
+pandas
+numpy
+scikit-learn
+xgboost
+
+# Pipeline orchestration
+apache-airflow
+pyspark
+
+# Experiment tracking & versioning
+mlflow
+dvc
+
+# Deployment
+fastapi
+uvicorn[standard]
+pydantic
+
+# Monitoring
+evidently
+
+# Dev/test
+pytest
