@@ -18,7 +18,8 @@ data/processed/*.csv
 # MLflow
 mlruns/
 mlartifacts/
-models/mlflow/mlruns/
+models/mlflow/*
+!models/mlflow/.gitkeep
 
 # DVC
 .dvc/cache
