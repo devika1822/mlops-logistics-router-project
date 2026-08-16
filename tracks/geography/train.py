@@ -33,7 +33,27 @@ PROCESSED_DATA_PATH = (
 
 TARGET = "optimized_route_time_min"
 
-FEATURES = [
+BASE_FEATURES = [
+    "order_latitude",
+    "order_longitude",
+    "distance_km",
+    "delivery_time_window_hrs",
+    "order_priority",
+    "traffic_density_index",
+]
+
+ENGINEERED_FEATURES = BASE_FEATURES + [
+    "distance_traffic_interaction",
+    "distance_per_delivery_window",
+    "distance_outlier_flag",
+]
+
+FEATURE_SETS = {
+    "base": BASE_FEATURES,
+    "engineered": ENGINEERED_FEATURES,
+}
+
+"""FEATURES = [
     "order_latitude",
     "order_longitude",
     "distance_km",
@@ -47,7 +67,7 @@ FEATURES = [
 
     # Input-based outlier flag
     "distance_outlier_flag",
-]
+]"""
 
 TEST_SIZE = 0.20
 RANDOM_STATE = 42
@@ -78,7 +98,11 @@ print(f"Dataset shape: {df.shape}")
 
 # Validate model columns
 
-required_columns = FEATURES + [TARGET]
+#required_columns = FEATURES + [TARGET]
+
+required_columns = list(
+    set(ENGINEERED_FEATURES + [TARGET])
+)
 
 missing_columns = [
     column
@@ -94,10 +118,10 @@ if missing_columns:
 
 # Prepare train/test data
 
-X = df[FEATURES].copy()
+#X = df[FEATURES].copy()
 y = df[TARGET].copy()
 
-X_train, X_test, y_train, y_test = train_test_split(
+'''X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
     test_size=TEST_SIZE,
@@ -106,7 +130,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 
 print(f"Training rows: {len(X_train)}")
-print(f"Testing rows: {len(X_test)}")
+print(f"Testing rows: {len(X_test)}")'''
 
 
 # Models
@@ -134,113 +158,138 @@ models = {
 
 results = []
 
-for model_name, model in models.items():
+for feature_set_name, feature_names in FEATURE_SETS.items():
 
-    print("\n" + "=" * 60)
-    print(f"Training: {model_name}")
-    print("=" * 60)
+    X = df[feature_names].copy()
 
-    with mlflow.start_run(run_name=model_name):
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=TEST_SIZE,
+        random_state=RANDOM_STATE,
+    )
 
-        #train
-        model.fit(X_train, y_train)
+    print("\n" + "#" * 70)
+    print(f"FEATURE SET: {feature_set_name.upper()}")
+    print("#" * 70)
 
-        #predict
-        predictions = model.predict(X_test)
+    print(f"Training rows: {len(X_train)}")
+    print(f"Testing rows: {len(X_test)}")
 
-        
-        mae = mean_absolute_error(
-            y_test,
-            predictions,
-        )
+    for model_name, model in models.items():
 
-        rmse = mean_squared_error(
-            y_test,
-            predictions,
-        ) ** 0.5
+        run_name = f"{model_name}_{feature_set_name}"
 
-        r2 = r2_score(
-            y_test,
-            predictions,
-        )
+        print("\n" + "=" * 60)
+        print(f"Training: {run_name}")
+        print("=" * 60)
 
-        print(f"MAE  : {mae:.4f}")
-        print(f"RMSE : {rmse:.4f}")
-        print(f"R2   : {r2:.4f}")
+        with mlflow.start_run(run_name=run_name):
 
-        # Log common parameters
-        mlflow.log_param(
-            "model_name",
-            model_name,
-        )
+            # Train
+            model.fit(X_train, y_train)
 
-        mlflow.log_param(
-            "test_size",
-            TEST_SIZE,
-        )
+            # Predict
+            predictions = model.predict(X_test)
 
-        mlflow.log_param(
-            "random_state",
-            RANDOM_STATE,
-        )
-
-        mlflow.log_param(
-            "feature_count",
-            len(FEATURES),
-        )
-
-        mlflow.log_param(
-            "features",
-            ",".join(FEATURES),
-        )
-
-        mlflow.log_param(
-            "average_speed_excluded",
-            True,
-        )
-
-        
-        # Log model-specific parameters
-        if model_name == "random_forest":
-
-            mlflow.log_param(
-                "n_estimators",
-                200,
+            # Metrics
+            mae = mean_absolute_error(
+                y_test,
+                predictions,
             )
 
-       # Log metrics
-        mlflow.log_metric(
-            "mae",
-            mae,
-        )
+            rmse = mean_squared_error(
+                y_test,
+                predictions,
+            ) ** 0.5
 
-        mlflow.log_metric(
-            "rmse",
-            rmse,
-        )
+            r2 = r2_score(
+                y_test,
+                predictions,
+            )
 
-        mlflow.log_metric(
-            "r2",
-            r2,
-        )
+            print(f"MAE  : {mae:.4f}")
+            print(f"RMSE : {rmse:.4f}")
+            print(f"R2   : {r2:.4f}")
 
-        #log model
-        input_example = X_train.head(5)
+            # Common parameters
+            mlflow.log_param(
+                "model_name",
+                model_name,
+            )
 
-        mlflow.sklearn.log_model(
-            sk_model=model,
-            artifact_path="model",
-            input_example=input_example,
-        )
+            mlflow.log_param(
+                "feature_set",
+                feature_set_name,
+            )
 
-        results.append(
-            {
-                "Model": model_name,
-                "MAE": mae,
-                "RMSE": rmse,
-                "R2": r2,
-            }
-        )
+            mlflow.log_param(
+                "test_size",
+                TEST_SIZE,
+            )
+
+            mlflow.log_param(
+                "random_state",
+                RANDOM_STATE,
+            )
+
+            mlflow.log_param(
+                "feature_count",
+                len(feature_names),
+            )
+
+            mlflow.log_param(
+                "features",
+                ",".join(feature_names),
+            )
+
+            mlflow.log_param(
+                "average_speed_excluded",
+                True,
+            )
+
+            # Model-specific parameters
+            if model_name == "random_forest":
+
+                mlflow.log_param(
+                    "n_estimators",
+                    200,
+                )
+
+            # Metrics
+            mlflow.log_metric(
+                "mae",
+                mae,
+            )
+
+            mlflow.log_metric(
+                "rmse",
+                rmse,
+            )
+
+            mlflow.log_metric(
+                "r2",
+                r2,
+            )
+
+            # Model artifact
+            input_example = X_train.head(5)
+
+            mlflow.sklearn.log_model(
+                sk_model=model,
+                artifact_path="model",
+                input_example=input_example,
+            )
+
+            results.append(
+                {
+                    "Feature Set": feature_set_name,
+                    "Model": model_name,
+                    "MAE": mae,
+                    "RMSE": rmse,
+                    "R2": r2,
+                }
+            )
 
 
 #compare results
