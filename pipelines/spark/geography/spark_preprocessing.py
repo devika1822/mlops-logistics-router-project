@@ -5,7 +5,7 @@ from pyspark.sql import functions as F
 
 # Paths
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 RAW_DATA_PATH = str(
     PROJECT_ROOT
@@ -43,7 +43,6 @@ REQUIRED_COLUMNS = FINAL_FEATURES + [TARGET]
 spark = (
     SparkSession.builder
     .appName("FleetIQ-Geography-Preprocessing")
-    .master("local[*]")
     .getOrCreate()
 )
 
