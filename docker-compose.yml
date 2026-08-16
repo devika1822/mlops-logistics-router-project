@@ -1,4 +1,3 @@
-version: "3.8"
 
 # ==============================================================================
 # Fleet Logistics MLOps Pipeline — docker-compose skeleton
@@ -12,9 +11,9 @@ version: "3.8"
 
 services:
 
-  # ---------------------------------------------------------------------------
+  
   # Kafka streaming (simulates live fleet/order data)
-  # ---------------------------------------------------------------------------
+  
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     environment:
@@ -38,10 +37,20 @@ services:
       - "9092:9092"
       - "29092:29092"
 
-  # ---------------------------------------------------------------------------
+
+  # Spark batch data processing
+  
+  spark:
+    image: apache/spark:4.2.0-scala2.13-java21-python3-ubuntu
+    user: root
+    working_dir: /opt/project
+    volumes:
+      - ./:/opt/project  
+
+  
   # Airflow (single-node dev setup: Postgres metadata DB + webserver + scheduler)
   # Uses LocalExecutor — fine for a course project, not for real production scale.
-  # ---------------------------------------------------------------------------
+  
   airflow-db:
     image: postgres:15
     environment:
@@ -85,9 +94,9 @@ services:
       - ./pipelines/airflow/dags:/opt/airflow/dags
     command: scheduler
 
-  # ---------------------------------------------------------------------------
+  
   # MLflow tracking server — shared by all 4 tracks' training scripts
-  # ---------------------------------------------------------------------------
+  
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.14.1
     ports:
@@ -101,11 +110,11 @@ services:
       --host 0.0.0.0
       --port 5000
 
-  # ---------------------------------------------------------------------------
+  
   # Track services — one FastAPI container per track.
   # Each has its OWN Dockerfile under docker/<track>/Dockerfile (TBD, build by
   # the person owning that track). Ports are pre-assigned so there's no clash.
-  # ---------------------------------------------------------------------------
+  
   geography-api:      # Student 1 — Geography & Route (trip duration under traffic)
     build:
       context: ./tracks/geography
