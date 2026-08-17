@@ -6,12 +6,12 @@ import mlflow.sklearn
 import pandas as pd
 
 from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import KFold, cross_validate
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 
-#paths
-
+# File paths
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 PROCESSED_DATA_PATH = (
@@ -22,8 +22,7 @@ PROCESSED_DATA_PATH = (
 )
 
 
-# Final model configuration
-
+# Model configuration
 TARGET = "optimized_route_time_min"
 
 FEATURES = [
@@ -41,14 +40,11 @@ FEATURES = [
 EXPERIMENT_NAME = "geography_track"
 RUN_NAME = "geography_final_linear_regression"
 
-# Cross-validation results from model_tuning.py
-CV_MAE = 33.233676
-CV_RMSE = 48.320444
-CV_R2 = 0.456551
+RANDOM_STATE = 42
+CV_FOLDS = 5
 
 
-# MLflow configuration
-
+# Configure MLflow
 MLFLOW_TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
     "http://localhost:5000",
@@ -58,16 +54,14 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 mlflow.set_experiment(EXPERIMENT_NAME)
 
 
-# Load processed data
-
+# Load Spark processed dataset
 df = pd.read_parquet(PROCESSED_DATA_PATH)
 
 print("Processed Geography dataset loaded successfully.")
 print(f"Dataset shape: {df.shape}")
 
 
-# Validate columns
-
+# Check that all required columns are available
 required_columns = FEATURES + [TARGET]
 
 missing_columns = [
@@ -82,18 +76,15 @@ if missing_columns:
     )
 
 
-# Prepare full training data
-
+# Prepare features and target
 X = df[FEATURES].copy()
 y = df[TARGET].copy()
 
-print(f"Final training rows: {len(X)}")
+print(f"Training rows available: {len(X)}")
 print(f"Feature count: {len(FEATURES)}")
 
 
-
-# Final selected model
-
+# Selected final model
 final_model = Pipeline(
     steps=[
         ("scaler", StandardScaler()),
@@ -102,59 +93,59 @@ final_model = Pipeline(
 )
 
 
+# Evaluate the selected model using 5-fold cross-validation
+cv = KFold(
+    n_splits=CV_FOLDS,
+    shuffle=True,
+    random_state=RANDOM_STATE,
+)
 
-# Train and log final model
+cv_scores = cross_validate(
+    final_model,
+    X,
+    y,
+    cv=cv,
+    scoring={
+        "mae": "neg_mean_absolute_error",
+        "rmse": "neg_root_mean_squared_error",
+        "r2": "r2",
+    },
+)
 
+cv_mae = -cv_scores["test_mae"].mean()
+cv_rmse = -cv_scores["test_rmse"].mean()
+cv_r2 = cv_scores["test_r2"].mean()
+
+print("\n5-fold cross-validation completed.")
+print(f"Mean MAE  : {cv_mae:.4f}")
+print(f"Mean RMSE : {cv_rmse:.4f}")
+print(f"Mean R2   : {cv_r2:.4f}")
+
+
+# Train the final model using the complete processed dataset
+final_model.fit(X, y)
+
+print(
+    f"\nFinal model fitted on all {len(X)} "
+    "processed Geography records."
+)
+
+
+# Log final model and evaluation results to MLflow
 with mlflow.start_run(run_name=RUN_NAME):
 
-    final_model.fit(X, y)
+    mlflow.log_param("model_name", "linear_regression")
+    mlflow.log_param("feature_set", "engineered")
+    mlflow.log_param("feature_count", len(FEATURES))
+    mlflow.log_param("features", ",".join(FEATURES))
+    mlflow.log_param("average_speed_excluded", True)
+    mlflow.log_param("training_rows", len(X))
+    mlflow.log_param("cv_folds", CV_FOLDS)
+    mlflow.log_param("random_state", RANDOM_STATE)
 
-    mlflow.log_param(
-        "model_name",
-        "linear_regression",
-    )
-
-    mlflow.log_param(
-        "feature_set",
-        "engineered",
-    )
-
-    mlflow.log_param(
-        "feature_count",
-        len(FEATURES),
-    )
-
-    mlflow.log_param(
-        "features",
-        ",".join(FEATURES),
-    )
-
-    mlflow.log_param(
-        "average_speed_excluded",
-        True,
-    )
-
-    mlflow.log_param(
-        "training_rows",
-        len(X),
-    )
-
-    # These are cross-validation metrics from model selection,
-    # not metrics calculated on the full training dataset.
-    mlflow.log_metric(
-        "cv_mae",
-        CV_MAE,
-    )
-
-    mlflow.log_metric(
-        "cv_rmse",
-        CV_RMSE,
-    )
-
-    mlflow.log_metric(
-        "cv_r2",
-        CV_R2,
-    )
+    mlflow.log_metric("cv_mae", cv_mae)
+    mlflow.log_metric("cv_rmse", cv_rmse)
+    mlflow.log_metric("cv_r2", cv_r2)
 
     input_example = X.head(5)
 
@@ -171,11 +162,6 @@ print("\nSelected model:")
 print("Linear Regression with StandardScaler")
 
 print("\nCross-validation performance:")
-print(f"Mean MAE  : {CV_MAE:.4f}")
-print(f"Mean RMSE : {CV_RMSE:.4f}")
-print(f"Mean R2   : {CV_R2:.4f}")
-
-print(
-    "\nFinal model fitted on all "
-    f"{len(X)} processed Geography records."
-)
+print(f"Mean MAE  : {cv_mae:.4f}")
+print(f"Mean RMSE : {cv_rmse:.4f}")
+print(f"Mean R2   : {cv_r2:.4f}")
