@@ -153,6 +153,7 @@ with mlflow.start_run(run_name=RUN_NAME):
         sk_model=final_model,
         artifact_path="model",
         input_example=input_example,
+        registered_model_name="geography_route_time_model",
     )
 
 
