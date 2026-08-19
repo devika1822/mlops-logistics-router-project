@@ -37,7 +37,7 @@ FEATURES = [
     "distance_outlier_flag",
 ]
 
-EXPERIMENT_NAME = "geography_track"
+EXPERIMENT_NAME = "geography_production"
 RUN_NAME = "geography_final_linear_regression"
 
 RANDOM_STATE = 42

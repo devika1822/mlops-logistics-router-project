@@ -110,7 +110,7 @@ services:
     command: >
       mlflow server
       --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
+      --artifacts-destination /mlflow/artifacts
       --host 0.0.0.0
       --port 5000
 
@@ -121,14 +121,17 @@ services:
   
   geography-api:      # Student 1 — Geography & Route (trip duration under traffic)
     build:
-      context: ./tracks/geography
-      dockerfile: ../../docker/geography/Dockerfile   # TBD: create this Dockerfile
+      context: .
+      dockerfile: docker/geography/Dockerfile   
     ports:
       - "8001:8000"
     depends_on:
       - mlflow
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./:/opt/project
+      - ./models/mlflow:/mlflow  
 
   telemetry-api:       # Student 2 — Truck Telemetry (fuel consumption)
     build:
