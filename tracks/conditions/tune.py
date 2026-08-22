@@ -18,14 +18,20 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import ParameterGrid, ParameterSampler
-from sklearn.model_selection import StratifiedKFold
+
+from sklearn.model_selection import (
+    ParameterGrid,
+    ParameterSampler,
+    StratifiedKFold,
+)
+
 from xgboost import XGBClassifier
 
 
 
 FEATURES = [
     "weather_impact_index",
+    "average_speed_kmph",
     "time_of_day",
     "traffic_density_index",
 ]
@@ -45,18 +51,20 @@ LABEL_NAMES = [
 ]
 
 RANDOM_SEED = 42
-
 CV_FOLDS = 5
 
-# Stage 1: original V1 search
-STAGE1_TRIALS = 108
-
-# Stage 2: localized V2 refinement
+# Number of localized Stage 2 trials.
 STAGE2_TRIALS = 40
+
+MLFLOW_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "http://127.0.0.1:5002",
+)
 
 MLFLOW_EXPERIMENT = (
     "conditions_route_reliability_tuning_final"
 )
+
 
 
 
@@ -70,24 +78,53 @@ def load_data(train_path, test_path):
 
 
 def prepare_data(train_df, test_df):
+    """
+    Prepare model features and target labels.
 
-    X_train = train_df[FEATURES].copy()
-    X_test = test_df[FEATURES].copy()
+    All model features are converted to float64 so the
+    MLflow model signature is consistent for training
+    and inference.
+    """
 
-    y_train = train_df[TARGET].map(LABEL_MAPPING)
-    y_test = test_df[TARGET].map(LABEL_MAPPING)
+    X_train = (
+        train_df[FEATURES]
+        .copy()
+        .astype("float64")
+    )
+
+    X_test = (
+        test_df[FEATURES]
+        .copy()
+        .astype("float64")
+    )
+
+    y_train = train_df[TARGET].map(
+        LABEL_MAPPING
+    )
+
+    y_test = test_df[TARGET].map(
+        LABEL_MAPPING
+    )
 
     if y_train.isna().any():
         raise ValueError(
-            "Unknown or missing class found in training data."
+            "Unknown or missing class found "
+            "in training data."
         )
 
     if y_test.isna().any():
         raise ValueError(
-            "Unknown or missing class found in test data."
+            "Unknown or missing class found "
+            "in test data."
         )
 
-    return X_train, X_test, y_train, y_test
+    return (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+    )
+
 
 
 
@@ -113,7 +150,12 @@ def run_cross_validation(
     cv,
     print_folds=True,
 ):
+    """
+    Evaluate one XGBoost configuration using stratified
+    cross-validation.
 
+    The test set is not used during tuning.
+    """
 
     fold_f1 = []
     fold_accuracy = []
@@ -161,6 +203,8 @@ def run_cross_validation(
             fold_accuracy_value
         )
 
+        # Stage 2 keeps fold-level details.
+        # Stage 1 suppresses them.
         if print_folds:
             print(
                 f"    Fold {fold_number}: "
@@ -179,6 +223,7 @@ def run_cross_validation(
             np.mean(fold_accuracy)
         ),
     }
+
 
 
 
@@ -246,7 +291,7 @@ def evaluate_test_model(
 
 def get_stage1_search_space():
     """
-    Original V1 search space.
+    Broad V1-style search space.
 
     3 x 3 x 3 x 2 x 2 = 108 configurations.
     """
@@ -279,18 +324,20 @@ def get_stage1_search_space():
 
 
 
+
 def build_local_search_space(best_params):
     """
-    Build a localized Stage-2 search around the best
-    Stage-1 configuration.
+    Build a localized Stage 2 search around the best
+    Stage 1 configuration.
 
-    Additional regularization parameters are introduced
-    here, based on the V2 strategy.
+    Additional regularization parameters are explored
+    in Stage 2.
     """
 
     n_estimators = best_params["n_estimators"]
     max_depth = best_params["max_depth"]
     learning_rate = best_params["learning_rate"]
+
     subsample = best_params["subsample"]
     colsample_bytree = best_params["colsample_bytree"]
 
@@ -317,18 +364,26 @@ def build_local_search_space(best_params):
     )
 
 
-
     learning_rate_values = sorted(
         {
-            max(0.025, round(
-                learning_rate * 0.5,
+            max(
+                0.025,
+                round(
+                    learning_rate * 0.5,
+                    3,
+                ),
+            ),
+            max(
+                0.025,
+                round(
+                    learning_rate * 0.75,
+                    3,
+                ),
+            ),
+            round(
+                learning_rate,
                 3,
-            )),
-            max(0.025, round(
-                learning_rate * 0.75,
-                3,
-            )),
-            round(learning_rate, 3),
+            ),
             round(
                 learning_rate * 1.25,
                 3,
@@ -346,9 +401,9 @@ def build_local_search_space(best_params):
 
     if subsample <= 0.8:
         subsample_values = [
+            0.6,
             0.7,
             0.8,
-            0.9,
         ]
     elif subsample < 1.0:
         subsample_values = [
@@ -367,13 +422,19 @@ def build_local_search_space(best_params):
 
     if colsample_bytree <= 0.8:
         colsample_values = [
+            0.7,
+            0.8,
+            0.9,
+        ]
+    elif colsample_bytree < 1.0:
+        colsample_values = [
             0.8,
             0.9,
             1.0,
         ]
     else:
         colsample_values = [
-            0.8,
+            0.85,
             0.9,
             1.0,
         ]
@@ -384,8 +445,6 @@ def build_local_search_space(best_params):
         "learning_rate": learning_rate_values,
         "subsample": subsample_values,
         "colsample_bytree": colsample_values,
-
-        # New regularization parameters in Stage 2
         "min_child_weight": [
             1,
             3,
@@ -410,6 +469,7 @@ def build_local_search_space(best_params):
 
 
 
+
 def log_trial(
     stage_name,
     trial_number,
@@ -417,7 +477,7 @@ def log_trial(
     cv_results,
     elapsed_seconds,
 ):
-    """Log one tuning trial to MLflow."""
+    """Log one tuning trial as a nested MLflow run."""
 
     with mlflow.start_run(
         run_name=(
@@ -464,7 +524,7 @@ def save_results(
     results,
     output_dir,
 ):
-    """Save tuning results as CSV."""
+    """Save all tuning results as CSV."""
 
     os.makedirs(
         output_dir,
@@ -492,7 +552,7 @@ def save_best_parameters(
     best_params,
     output_dir,
 ):
-    """Save the selected parameters as JSON."""
+    """Save the best parameters as JSON."""
 
     os.makedirs(
         output_dir,
@@ -523,12 +583,14 @@ def save_final_artifacts(
     metrics,
     output_dir,
 ):
-    """Save final test-evaluation artifacts."""
+    """Save final model evaluation artifacts."""
 
     os.makedirs(
         output_dir,
         exist_ok=True,
     )
+
+
 
     report_path = os.path.join(
         output_dir,
@@ -539,9 +601,11 @@ def save_final_artifacts(
         report_path,
         "w",
     ) as file:
+
         file.write(
             metrics["report"]
         )
+
 
     confusion_path = os.path.join(
         output_dir,
@@ -561,10 +625,13 @@ def save_final_artifacts(
             str(metrics["matrix"])
         )
 
+
     feature_importance_df = pd.DataFrame(
         {
             "feature": FEATURES,
-            "importance": model.feature_importances_,
+            "importance": (
+                model.feature_importances_
+            ),
         }
     ).sort_values(
         by="importance",
@@ -584,10 +651,10 @@ def save_final_artifacts(
     return {
         "report": report_path,
         "confusion": confusion_path,
-        "feature_importance": feature_importance_path,
+        "feature_importance": (
+            feature_importance_path
+        ),
     }
-
-
 
 
 def main():
@@ -611,32 +678,26 @@ def main():
         help="Path to processed test Parquet",
     )
 
-    parser.add_argument(
-        "--mlruns",
-        default="mlruns",
-        help="MLflow tracking directory",
-    )
-
     args = parser.parse_args()
 
 
 
-    tracking_path = os.path.abspath(
-        args.mlruns
-    )
-
     mlflow.set_tracking_uri(
-        f"file://{tracking_path}"
+        MLFLOW_URI
     )
 
     mlflow.set_experiment(
         MLFLOW_EXPERIMENT
     )
 
+    print(
+        f"MLflow tracking URI: "
+        f"{MLFLOW_URI}"
+    )
 
 
     print(
-        "Loading processed datasets..."
+        "\nLoading processed datasets..."
     )
 
     train_df, test_df = load_data(
@@ -644,7 +705,12 @@ def main():
         args.test,
     )
 
-    X_train, X_test, y_train, y_test = prepare_data(
+    (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+    ) = prepare_data(
         train_df,
         test_df,
     )
@@ -690,6 +756,20 @@ def main():
         run_name="XGBoost_Tuning_Final"
     ) as parent_run:
 
+
+
+        stage1_grid = list(
+            ParameterGrid(
+                get_stage1_search_space()
+            )
+        )
+
+        stage1_trials = len(
+            stage1_grid
+        )
+
+
+
         mlflow.log_param(
             "search_strategy",
             "broad_then_local_refinement",
@@ -697,7 +777,7 @@ def main():
 
         mlflow.log_param(
             "stage1_trials",
-            STAGE1_TRIALS,
+            stage1_trials,
         )
 
         mlflow.log_param(
@@ -749,15 +829,9 @@ def main():
             "=" * 70
         )
 
-        stage1_grid = list(
-            ParameterGrid(
-                get_stage1_search_space()
-            )
-        )
-
         print(
             f"Stage 1 configurations: "
-            f"{len(stage1_grid)}"
+            f"{stage1_trials}"
         )
 
         for trial_number, params in enumerate(
@@ -766,13 +840,8 @@ def main():
         ):
 
             print(
-                "\n"
-                + "-" * 60
-            )
-
-            print(
-                f"Stage 1 Trial "
-                f"{trial_number}/{STAGE1_TRIALS}"
+                f"\nStage 1 Trial "
+                f"{trial_number}/{stage1_trials}"
             )
 
             print(
@@ -786,6 +855,7 @@ def main():
                 y_train,
                 params,
                 cv,
+                print_folds=False,
             )
 
             elapsed_seconds = (
@@ -815,7 +885,7 @@ def main():
             )
 
             print(
-                f"    CV Macro F1: "
+                f"CV Macro F1: "
                 f"{cv_results['cv_macro_f1']:.4f}"
             )
 
@@ -823,17 +893,19 @@ def main():
                 cv_results["cv_macro_f1"]
                 > best_cv_score
             ):
+
                 best_cv_score = (
                     cv_results["cv_macro_f1"]
                 )
 
-                best_params = params.copy()
-
-                best_stage = "stage1_broad"
-
-                print(
-                    "\n    New overall best!"
+                best_params = (
+                    params.copy()
                 )
+
+                best_stage = (
+                    "stage1_broad"
+                )
+
 
         print(
             "\n"
@@ -898,13 +970,8 @@ def main():
         ):
 
             print(
-                "\n"
-                + "-" * 60
-            )
-
-            print(
-                f"Stage 2 Trial "
-                f"{trial_number}/{STAGE2_TRIALS}"
+                f"\nStage 2 Trial "
+                f"{trial_number}/{len(stage2_samples)}"
             )
 
             print(
@@ -918,6 +985,7 @@ def main():
                 y_train,
                 params,
                 cv,
+                print_folds=True,
             )
 
             elapsed_seconds = (
@@ -947,7 +1015,7 @@ def main():
             )
 
             print(
-                f"    CV Macro F1: "
+                f"CV Macro F1: "
                 f"{cv_results['cv_macro_f1']:.4f}"
             )
 
@@ -955,18 +1023,22 @@ def main():
                 cv_results["cv_macro_f1"]
                 > best_cv_score
             ):
+
                 best_cv_score = (
                     cv_results["cv_macro_f1"]
                 )
 
-                best_params = params.copy()
-
-                best_stage = "stage2_local"
-
-                print(
-                    "\n    New overall best!"
+                best_params = (
+                    params.copy()
                 )
 
+                best_stage = (
+                    "stage2_local"
+                )
+
+                print(
+                    "New overall best!"
+                )
 
 
         results_path = save_results(
@@ -978,14 +1050,17 @@ def main():
             results_path
         )
 
-        best_params_path = save_best_parameters(
-            best_params,
-            "reports/conditions",
+        best_params_path = (
+            save_best_parameters(
+                best_params,
+                "reports/conditions",
+            )
         )
 
         mlflow.log_artifact(
             best_params_path
         )
+
 
 
         print(
@@ -1027,7 +1102,6 @@ def main():
         )
 
         for key, value in best_params.items():
-
             mlflow.log_param(
                 f"best_{key}",
                 value,
@@ -1049,6 +1123,7 @@ def main():
             y_train,
             verbose=False,
         )
+
 
 
         print(
@@ -1103,6 +1178,7 @@ def main():
         )
 
 
+
         input_example = X_train.head(3)
 
         example_predictions = (
@@ -1116,11 +1192,14 @@ def main():
             example_predictions,
         )
 
+
+
         mlflow.xgboost.log_model(
             final_model,
             artifact_path="final_model",
             signature=signature,
             input_example=input_example,
+            model_format="json",
         )
 
 
@@ -1143,6 +1222,8 @@ def main():
             "test_macro_f1",
             test_metrics["macro_f1"],
         )
+
+
 
         print(
             "\n"
