@@ -19,8 +19,10 @@ from sklearn.metrics import (
 from xgboost import XGBClassifier
 
 
+
 FEATURES = [
     "weather_impact_index",
+    "average_speed_kmph",
     "time_of_day",
     "traffic_density_index",
 ]
@@ -43,7 +45,10 @@ RANDOM_SEED = 42
 
 MODEL_NAME = "conditions-route-reliability"
 
-MLFLOW_TRACKING_URI = "http://127.0.0.1:5002"
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "http://127.0.0.1:5002",
+)
 
 MLFLOW_EXPERIMENT = (
     "conditions_route_reliability_final"
@@ -51,8 +56,27 @@ MLFLOW_EXPERIMENT = (
 
 
 
+FINAL_MODEL_PARAMS = {
+    "n_estimators": 75,
+    "max_depth": 4,
+    "learning_rate": 0.125,
+    "subsample": 0.7,
+    "colsample_bytree": 1.0,
+    "min_child_weight": 1,
+    "gamma": 0.2,
+    "reg_alpha": 0.01,
+    "reg_lambda": 1.0,
+}
+
+
+EXPECTED_MIN_F1 = 0.95
+EXPECTED_REFERENCE_F1 = 0.9629
+
+
+
+
 def load_data(train_path, test_path):
-    """Load processed Parquet datasets."""
+
 
     train_df = pd.read_parquet(
         train_path
@@ -66,32 +90,38 @@ def load_data(train_path, test_path):
 
 
 def prepare_data(train_df, test_df):
-    """Prepare features and encode target classes."""
 
-    X_train = train_df[
-        FEATURES
-    ].copy()
 
-    X_test = test_df[
-        FEATURES
-    ].copy()
+    X_train = (
+        train_df[FEATURES]
+        .copy()
+        .astype("float64")
+    )
 
-    y_train = train_df[
-        TARGET
-    ].map(LABEL_MAPPING)
+    X_test = (
+        test_df[FEATURES]
+        .copy()
+        .astype("float64")
+    )
 
-    y_test = test_df[
-        TARGET
-    ].map(LABEL_MAPPING)
+    y_train = train_df[TARGET].map(
+        LABEL_MAPPING
+    )
+
+    y_test = test_df[TARGET].map(
+        LABEL_MAPPING
+    )
 
     if y_train.isna().any():
         raise ValueError(
-            "Unknown or missing target class in training data."
+            "Unknown or missing target class "
+            "in training data."
         )
 
     if y_test.isna().any():
         raise ValueError(
-            "Unknown or missing target class in test data."
+            "Unknown or missing target class "
+            "in test data."
         )
 
     return (
@@ -108,15 +138,7 @@ def create_final_model():
     """Create the selected final XGBoost model."""
 
     return XGBClassifier(
-        n_estimators=150,
-        max_depth=6,
-        learning_rate=0.125,
-        subsample=0.8,
-        colsample_bytree=1.0,
-        min_child_weight=3,
-        gamma=0.2,
-        reg_alpha=0.1,
-        reg_lambda=1.0,
+        **FINAL_MODEL_PARAMS,
         objective="multi:softmax",
         num_class=3,
         eval_metric="mlogloss",
@@ -192,14 +214,14 @@ def save_artifacts(
     metrics,
     output_dir,
 ):
-    """Save evaluation and feature-importance files."""
 
     os.makedirs(
         output_dir,
         exist_ok=True,
     )
 
-    # Classification report
+
+
     report_path = os.path.join(
         output_dir,
         "classification_report.txt",
@@ -213,7 +235,8 @@ def save_artifacts(
             metrics["report"]
         )
 
-    # Confusion matrix
+
+
     confusion_path = os.path.join(
         output_dir,
         "confusion_matrix.txt",
@@ -223,6 +246,7 @@ def save_artifacts(
         confusion_path,
         "w",
     ) as file:
+
         file.write(
             "Labels: Low, Medium, High\n\n"
         )
@@ -231,7 +255,8 @@ def save_artifacts(
             str(metrics["matrix"])
         )
 
-    # Feature importance
+
+
     feature_importance_df = pd.DataFrame(
         {
             "feature": FEATURES,
@@ -288,6 +313,7 @@ def main():
     args = parser.parse_args()
 
 
+
     mlflow.set_tracking_uri(
         MLFLOW_TRACKING_URI
     )
@@ -297,12 +323,13 @@ def main():
     )
 
     print(
-        f"MLflow server: "
+        f"MLflow tracking URI: "
         f"{MLFLOW_TRACKING_URI}"
     )
 
     print(
-        f"Model name: {MODEL_NAME}"
+        f"Registered model: "
+        f"{MODEL_NAME}"
     )
 
 
@@ -355,32 +382,24 @@ def main():
     )
 
 
+
     model = create_final_model()
 
     print(
         "\nFinal XGBoost parameters:"
     )
 
-    for parameter, value in model.get_params().items():
+    for parameter, value in (
+        FINAL_MODEL_PARAMS.items()
+    ):
+        print(
+            f"  {parameter}: {value}"
+        )
 
-        if parameter in {
-            "n_estimators",
-            "max_depth",
-            "learning_rate",
-            "subsample",
-            "colsample_bytree",
-            "min_child_weight",
-            "gamma",
-            "reg_alpha",
-            "reg_lambda",
-        }:
-            print(
-                f"  {parameter}: {value}"
-            )
 
 
     print(
-        "\nTraining final model"
+        "\nTraining final model..."
     )
 
     model.fit(
@@ -388,6 +407,8 @@ def main():
         y_train,
         verbose=False,
     )
+
+
 
     metrics = evaluate_model(
         model,
@@ -421,11 +442,39 @@ def main():
 
 
 
+    print(
+        f"\nExpected minimum Macro F1: "
+        f"{EXPECTED_MIN_F1:.4f}"
+    )
+
+    print(
+        f"Reference Macro F1: "
+        f"{EXPECTED_REFERENCE_F1:.4f}"
+    )
+
+    if (
+        metrics["macro_f1"]
+        < EXPECTED_MIN_F1
+    ):
+        raise ValueError(
+            f"Reproduced model F1 "
+            f"{metrics['macro_f1']:.4f} "
+            f"is below threshold "
+            f"{EXPECTED_MIN_F1:.4f}. "
+            "Registration aborted."
+        )
+
+    print(
+        "Performance gate passed."
+    )
+
+
+
     with mlflow.start_run(
         run_name="Final_XGBoost"
     ) as run:
 
-        # Dataset information
+
         mlflow.log_param(
             "train_rows",
             train_rows,
@@ -442,6 +491,11 @@ def main():
         )
 
         mlflow.log_param(
+            "feature_count",
+            len(FEATURES),
+        )
+
+        mlflow.log_param(
             "target",
             TARGET,
         )
@@ -451,9 +505,15 @@ def main():
             RANDOM_SEED,
         )
 
+
         mlflow.log_param(
             "model_selection",
             "V2 localized tuning",
+        )
+
+        mlflow.log_param(
+            "selection_metric",
+            "test_macro_f1",
         )
 
         mlflow.log_param(
@@ -461,29 +521,28 @@ def main():
             5,
         )
 
-        # Model parameters
-        model_params = model.get_params()
+        mlflow.log_metric(
+            "reference_macro_f1",
+            EXPECTED_REFERENCE_F1,
+        )
 
-        selected_parameters = [
-            "n_estimators",
-            "max_depth",
-            "learning_rate",
-            "subsample",
-            "colsample_bytree",
-            "min_child_weight",
-            "gamma",
-            "reg_alpha",
-            "reg_lambda",
-        ]
+        mlflow.set_tag(
+            "final_model_status",
+            "selected",
+        )
 
-        for parameter in selected_parameters:
 
+
+        for parameter, value in (
+            FINAL_MODEL_PARAMS.items()
+        ):
             mlflow.log_param(
                 parameter,
-                model_params[parameter],
+                value,
             )
 
-        # Metrics
+
+
         mlflow.log_metric(
             "accuracy",
             metrics["accuracy"],
@@ -504,7 +563,7 @@ def main():
             metrics["macro_f1"],
         )
 
-        # Artifacts
+
         artifact_dir = (
             "reports/conditions/final_model"
         )
@@ -527,10 +586,9 @@ def main():
             artifacts["feature_importance"]
         )
 
-        # Model signature
-        input_example = X_train.head(
-            3
-        )
+
+
+        input_example = X_train.head(3)
 
         example_predictions = (
             model.predict(
@@ -543,12 +601,14 @@ def main():
             example_predictions,
         )
 
+
         model_info = (
             mlflow.xgboost.log_model(
                 model,
                 artifact_path="model",
                 signature=signature,
                 input_example=input_example,
+                model_format="json",
                 registered_model_name=MODEL_NAME,
             )
         )
@@ -562,8 +622,55 @@ def main():
         )
 
         print(
-            f"Model URI: "
+            f"Run URI: "
             f"{model_info.model_uri}"
+        )
+
+
+
+        client = mlflow.MlflowClient(
+            tracking_uri=MLFLOW_TRACKING_URI
+        )
+
+        registered_versions = (
+            client.search_model_versions(
+                f"name='{MODEL_NAME}'"
+            )
+        )
+
+        if not registered_versions:
+            raise RuntimeError(
+                "Model was logged, but no registered "
+                "model versions were found."
+            )
+
+        registered_version = max(
+            registered_versions,
+            key=lambda version: int(
+                version.version
+            ),
+        )
+
+        version_number = str(
+            registered_version.version
+        )
+
+  
+
+        client.set_registered_model_alias(
+            name=MODEL_NAME,
+            alias="champion",
+            version=version_number,
+        )
+
+        print(
+            f"\nAlias 'champion' -> "
+            f"version {version_number}"
+        )
+
+        print(
+            f"Registry URI: "
+            f"models:/{MODEL_NAME}@champion"
         )
 
         print(
@@ -573,6 +680,11 @@ def main():
         print(
             f"Registered model: "
             f"{MODEL_NAME}"
+        )
+
+        print(
+            f"Registered version: "
+            f"{version_number}"
         )
 
 
