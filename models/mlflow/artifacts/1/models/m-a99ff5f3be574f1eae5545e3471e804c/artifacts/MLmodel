@@ -1,0 +1,38 @@
+artifact_path: file:///C:/Anoop/Personal/IIT Madras/Term3/MLOPS/mlops-logistics-router-project/models/mlflow/artifacts/1/models/m-a99ff5f3be574f1eae5545e3471e804c/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.9.5
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.6.1
+is_signature_from_type_hint: false
+mlflow_version: 3.1.4
+model_id: m-a99ff5f3be574f1eae5545e3471e804c
+model_size_bytes: 2310351
+model_uuid: m-a99ff5f3be574f1eae5545e3471e804c
+prompts: null
+run_id: 5e0a8cd7cefc4dc29b580903244c1c07
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "double", "name": "cargo_weight_kg", "required": true}, {"type":
+    "double", "name": "vehicle_capacity_pct", "required": true}, {"type": "double",
+    "name": "delivery_deadline_hrs", "required": true}, {"type": "double", "name":
+    "trip_distance_km", "required": true}, {"type": "double", "name": "traffic_density_index",
+    "required": true}, {"type": "double", "name": "weather_impact_index", "required":
+    true}, {"type": "double", "name": "overloaded_flag", "required": true}]'
+  outputs: '[{"type": "double", "required": true}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-08-22 16:24:23.620137'
