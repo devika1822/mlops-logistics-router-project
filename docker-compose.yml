@@ -1,0 +1,27 @@
+services:
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.1
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./models/mlflow:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+
+  telemetry-api:
+    build:
+      context: ./
+      dockerfile: ./docker/vehicle/Dockerfile
+    ports:
+      - "8002:8000"
+    depends_on:
+      - mlflow
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    # 👇 ADD THIS EXACT LINE TO FIX THE MODULE MAIN ERROR
+    command: uvicorn api.app_telemetry_da25g503:app --host 0.0.0.0 --port 8000
