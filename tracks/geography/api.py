@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 
 import mlflow
@@ -43,6 +44,13 @@ PROCESSED_DATA_PATH = (
     / "data"
     / "processed"
     / "geography"
+)
+
+PREDICTION_LOG_PATH = (
+    PROJECT_ROOT
+    / "monitoring"
+    / "geography"
+    / "prediction_logs.csv"
 )
 
 training_df = pd.read_parquet(PROCESSED_DATA_PATH)
@@ -111,6 +119,23 @@ def predict(data: PredictionInput):
     )
 
     prediction = model.predict(input_df)[0]
+
+    log_record = input_df.copy()
+
+    log_record["predicted_route_time_min"] = float(prediction)
+    log_record["prediction_timestamp"] = datetime.now().isoformat()
+
+    PREDICTION_LOG_PATH.parent.mkdir(
+        parents=True,
+       exist_ok=True,
+    )
+
+    log_record.to_csv(
+        PREDICTION_LOG_PATH,
+        mode="a",
+        header=not PREDICTION_LOG_PATH.exists(),
+        index=False,
+    )
 
     return {
         "predicted_route_time_min":
