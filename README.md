@@ -46,9 +46,8 @@ The modular design allows each machine learning track to be developed and tested
 ## 3. System Architecture Diagram
 
 ```text
-                         +-----------------------+
+                                                 +-----------------------+
                          |    Raw Data Sources   |
-                         | Logistics / Telemetry |
                          +-----------+-----------+
                                      |
                                      v
@@ -60,45 +59,32 @@ The modular design allows each machine learning track to be developed and tested
                                      v
                          +-----------------------+
                          |   Processed Datasets  |
-                         |    data/processed     |
                          +-----------+-----------+
                                      |
-              +----------------------+----------------------+
-              |                      |                      |
-              v                      v                      v
-      +---------------+      +---------------+      +---------------+
-      |   Geography   |      | Vehicle /     |      |     Cost      |
-      |     Track     |      | Telemetry     |      |     Track     |
-      +-------+-------+      +-------+-------+      +-------+-------+
-              |                      |                      |
-              +----------------------+----------------------+
-                                     |
-                              +------+------+
-                              | Conditions  |
-                              |    Track    |
-                              +------+------+
-                                     |
-                                     v
+        +-------------+--------------+--------------+-------------+
+        |             |              |              |
+        v             v              v              v
++---------------+ +---------------+ +---------------+ +---------------+
+|   Geography   | |   Vehicle /   | |     Cost      | |  Conditions   |
+|     Track     | |   Telemetry   | |     Track     | |     Track     |
++-------+-------+ +-------+-------+ +-------+-------+ +-------+-------+
+        |                 |                 |                 |
+        +-----------------+-----------------+-----------------+
+                                  |
+                                  v
                          +-----------------------+
                          |        MLflow         |
-                         | Experiments + Models  |
+                         | Experiments / Models  |
                          |   Model Registry      |
                          +-----------+-----------+
                                      |
-                                     v
-              +----------------------+----------------------+
-              |                      |                      |
-              v                      v                      v
-      +---------------+      +---------------+      +---------------+
-      | Geography API |      | Telemetry API |      |   Cost API    |
-      |   FastAPI     |      |    FastAPI    |      |    FastAPI    |
-      +---------------+      +---------------+      +---------------+
-                                     |
-                              +------+------+
-                              | Conditions  |
-                              |     API     |
-                              |   FastAPI   |
-                              +------+------+
+        +-------------+--------------+--------------+-------------+
+        |             |              |              |
+        v             v              v              v
++---------------+ +---------------+ +---------------+ +---------------+
+| Geography API | | Vehicle API   | |   Cost API    | | Conditions API|
+|   FastAPI     | |   FastAPI     | |   FastAPI     | |   FastAPI     |
++---------------+ +---------------+ +---------------+ +---------------+
                                      |
                                      v
                          +-----------------------+
@@ -106,9 +92,9 @@ The modular design allows each machine learning track to be developed and tested
                          | Integrated Execution  |
                          +-----------------------+
 
-      Apache Airflow --> Pipeline Orchestration
-      Apache Kafka   --> Streaming Infrastructure
-      Monitoring     --> Prediction / Model Monitoring
+      Apache Airflow → Pipeline orchestration
+      Apache Kafka  → Streaming infrastructure
+      Monitoring    → Drift / prediction monitoring
 ```
 
 ---
