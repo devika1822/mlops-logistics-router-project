@@ -5,13 +5,13 @@ import pandas as pd
 import mlflow
 import mlflow.sklearn
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score
 
 def train_final_model():
-    print("=== Phase 3: Commencing Final Production Model Training Loops ===")
+    print("=== Phase 3: Commencing Cost Candidate Tracking & Model Selection ===")
     mlflow.set_tracking_uri("http://localhost:5000")
-    mlflow.set_experiment("Truck_Route_Cost_Regression")
     
     df = pd.read_csv("data/processed/clean_cost_da25g503.csv")
     
@@ -20,43 +20,110 @@ def train_final_model():
     
     y = df[primary_target]
     X = df.drop(columns=[primary_target] + [col for col in competing_targets if col in df.columns], errors='ignore')
-    X = X.select_dtypes(include=['number']) # Explicitly maintain clean numerical feature boundaries
+    X = X.select_dtypes(include=['number'])
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+    # Extract feature metadata for MLflow logging
+    feature_list_str = ",".join(X.columns.tolist())
+    feature_count = len(X.columns)
+    training_rows = len(X_train)
+
+    # --- STEP 1: Log Candidates under 'Cost Track' Experiment ---
+    mlflow.set_experiment("Cost Track")
+
+    # Linear Regression Candidate Run
+    print("\n--- Evaluating Linear Regression Candidate ---")
+    with mlflow.start_run(run_name="cost_candidate_linear_regression"):
+        lr = LinearRegression()
+        lr.fit(X_train, y_train)
+        lr_preds = lr.predict(X_test)
+        lr_mse = mean_squared_error(y_test, lr_preds)
+        lr_r2 = r2_score(y_test, lr_preds)
+        
+        mlflow.log_param("model_name", "linear_regression")
+        mlflow.log_param("feature_set", "engineered")
+        mlflow.log_param("feature_count", feature_count)
+        mlflow.log_param("features", feature_list_str)
+        mlflow.log_param("average_speed_excluded", True)
+        mlflow.log_param("training_rows", training_rows)
+
+        mlflow.log_metric("cv_mse", lr_mse)
+        mlflow.log_metric("cv_r2", lr_r2)
+        mlflow.sklearn.log_model(lr, artifact_path="model")
+        print(f"Linear Regression -> MSE: {lr_mse:.4f} | R2: {lr_r2:.4f}")
+
+    # Random Forest Candidate Run
+    print("\n--- Evaluating Random Forest Candidate ---")
     config_path = "config/best_params_da25g503.json"
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
             best_params = json.load(f)
-        print(f"Successfully loaded optimized hyperparameters from tuning file: {best_params}")
     else:
         best_params = {"n_estimators": 100, "max_depth": None, "random_state": 42}
-        print("Tuning parameter config file missing. Falling back to default baseline configurations.")
 
     best_params["random_state"] = 42
 
-    with mlflow.start_run(run_name="Final_Champion_Model_Training"):
+    with mlflow.start_run(run_name="cost_candidate_random_forest"):
         rf = RandomForestRegressor(**best_params)
         rf.fit(X_train, y_train)
+        rf_preds = rf.predict(X_test)
+        rf_mse = mean_squared_error(y_test, rf_preds)
+        rf_r2 = r2_score(y_test, rf_preds)
         
-        preds = rf.predict(X_test)
-        mse = mean_squared_error(y_test, preds)
-        r2 = r2_score(y_test, preds)
+        mlflow.log_param("model_name", "random_forest")
+        mlflow.log_param("feature_set", "engineered")
+        mlflow.log_param("feature_count", feature_count)
+        mlflow.log_param("features", feature_list_str)
+        mlflow.log_param("average_speed_excluded", True)
+        mlflow.log_param("training_rows", training_rows)
+
+        mlflow.log_metric("cv_mse", rf_mse)
+        mlflow.log_metric("cv_r2", rf_r2)
+        mlflow.sklearn.log_model(rf, artifact_path="model")
+        print(f"Random Forest -> MSE: {rf_mse:.4f} | R2: {rf_r2:.4f}")
+
+    # --- STEP 2: Compare Models ---
+    if rf_r2 > lr_r2:
+        winning_type = "random_forest"
+        best_model = rf
+        best_mse = rf_mse
+        best_r2 = rf_r2
+    else:
+        winning_type = "linear_regression"
+        best_model = lr
+        best_mse = lr_mse
+        best_r2 = lr_r2
+
+    print(f"\nSelection Complete -> Winner: {winning_type} with R2: {best_r2:.4f}")
+
+    # --- STEP 3: Log Winner to 'Cost Production' Experiment & Register ---
+    mlflow.set_experiment("Cost Production")
+    production_run_name = f"cost_final_{winning_type}"
+
+    with mlflow.start_run(run_name=production_run_name):
+        mlflow.log_param("model_name", winning_type)
+        mlflow.log_param("feature_set", "engineered")
+        mlflow.log_param("feature_count", feature_count)
+        mlflow.log_param("features", feature_list_str)
+        mlflow.log_param("average_speed_excluded", True)
+        mlflow.log_param("training_rows", training_rows)
+
+        mlflow.log_metric("final_mse", best_mse)
+        mlflow.log_metric("final_r2", best_r2)
         
-        mlflow.log_metrics({"Final_MSE": mse, "Final_R2_Score": r2})
-        
+        # Register the winning model under the new cost registry name
         mlflow.sklearn.log_model(
-            sk_model=rf, 
-            artifact_path="model", 
-            registered_model_name="Optimized_Route_Cost_Model"
+            sk_model=best_model,
+            artifact_path="model",
+            registered_model_name="cost_route_cost_model"
         )
-        
+
         os.makedirs("models", exist_ok=True)
         with open("models/truck_cost_model_all_features.pkl", "wb") as f:
-            pickle.dump(rf, f)
+            pickle.dump(best_model, f)
             
-        print("\n Production Model Training and Registry Success!")
-        print(f" Final Evaluation Metrics -> Test MSE: {mse:.4f} | Test R2 Score: {r2:.4f}")
+        print(f"\nSuccessfully logged '{production_run_name}' under 'Cost Production' and registered 'cost_route_cost_model'!")
 
 if __name__ == "__main__":
     train_final_model()
