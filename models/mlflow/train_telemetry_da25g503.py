@@ -1,120 +1,81 @@
 import os
 import pickle
 import pandas as pd
-import numpy as np
 import mlflow
 import mlflow.sklearn
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, r2_score
 
 def train_and_compare_models():
-    mlflow.set_experiment("Truck_Telemetry_Full_Features")
+    mlflow.set_tracking_uri("http://localhost:5000")
+    mlflow.set_experiment("Truck_Telemetry_Regression")
     
-    data_path = "data/processed/clean_telemtery_da25g503.csv"
-    if not os.path.exists(data_path):
-        if os.path.exists("clean_telemtery_da25g503.csv"):
-            data_path = "clean_telemtery_da25g503.csv"
-        else:
-            raise FileNotFoundError("Error: Clean telemetry file not found. Please check path.")
+    df = pd.read_csv("data/processed/clean_telemetery_da25g503.csv")
+    
+    primary_target = "delivery_efficiency_score"
+    competing_targets = ["breakdown_risk_level", "optimized_route_cost", "optimized_route_time_min"]
+    
+    y = df[primary_target]
+    X = df.drop(columns=[primary_target] + [col for col in competing_targets if col in df.columns])
+    X = X.select_dtypes(include=['number'])  # Keep only clean numerical features
 
-    df = pd.read_csv(data_path)
-    
-    target_column = "breakdown_risk_level"
-    if target_column not in df.columns:
-        raise ValueError(f"Target column '{target_column}' missing from dataset.")
-        
-    X = df.drop(columns=[target_column])
-    X = X.select_dtypes(include=['number'])
-    y = df[target_column]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    best_f1 = -1.0
+    best_r2 = -1.0
     best_model = None
 
-    # =========================================================================
-    #  MODEL 1: Logistic Regression
-    # =========================================================================
-    with mlflow.start_run(run_name="Baseline_Logistic_Regression"):
-        print("\n--- Training Model 1: Baseline Logistic Regression ---")
-        
-        lr = LogisticRegression(max_iter=1000, random_state=42)
+    # --- MODEL 1: Baseline Linear Regression ---
+    with mlflow.start_run(run_name="Baseline_Linear_Regression"):
+        print("\n--- Training Model 1: Baseline Linear Regression ---")
+        lr = LinearRegression()
         lr.fit(X_train, y_train)
         
-        lr_predictions = lr.predict(X_test)
-        lr_acc = accuracy_score(y_test, lr_predictions)
-        lr_f1 = f1_score(y_test, lr_predictions, average='weighted')
+        preds = lr.predict(X_test)
+        mse = mean_squared_error(y_test, preds)
+        r2 = r2_score(y_test, preds)
         
-        mlflow.log_param("model_type", "LogisticRegression")
-        mlflow.log_param("max_iter", 1000)
-        mlflow.log_metric("accuracy", lr_acc)
-        mlflow.log_metric("f1_score", lr_f1)
+        mlflow.log_param("model_type", "LinearRegression")
+        mlflow.log_metric("MSE", mse)
+        mlflow.log_metric("R2_Score", r2)
+        mlflow.sklearn.log_model(lr, "baseline_lr_model")
+        print(f"Baseline LR -> MSE: {mse:.4f} | R2: {r2:.4f}")
         
-        print(f"Baseline Accuracy: {lr_acc:.4f} | Weighted F1: {lr_f1:.4f}")
-        
-        mlflow.sklearn.log_model(sk_model=lr, artifact_path="baseline_model")
-        
-        if lr_f1 > best_f1:
-            best_f1 = lr_f1
-            best_model = lr
+        if r2 > best_r2:
+            best_r2, best_model = r2, lr
 
-    # =========================================================================
-    # MODEL 2: Random Forest
-    # =========================================================================
-    with mlflow.start_run(run_name="Random_Forest_All_Features"):
-        print("\n--- Training Model 2: Advanced Random Forest Classifier ---")
-        
-        rf = RandomForestClassifier(n_estimators=100, random_state=42)
+    # --- MODEL 2: Advanced Random Forest Regressor ---
+    with mlflow.start_run(run_name="Random_Forest_Regressor"):
+        print("\n--- Training Model 2: Advanced Random Forest Regressor ---")
+        rf = RandomForestRegressor(n_estimators=100, random_state=42)
         rf.fit(X_train, y_train)
         
-        rf_predictions = rf.predict(X_test)
-        rf_acc = accuracy_score(y_test, rf_predictions)
-        rf_f1 = f1_score(y_test, rf_predictions, average='weighted')
+        preds_rf = rf.predict(X_test)
+        mse_rf = mean_squared_error(y_test, preds_rf)
+        r2_rf = r2_score(y_test, preds_rf)
         
-        mlflow.log_param("model_type", "RandomForestClassifier")
+        mlflow.log_param("model_type", "RandomForestRegressor")
         mlflow.log_param("n_estimators", 100)
-        mlflow.log_metric("accuracy", rf_acc)
-        mlflow.log_metric("f1_score", rf_f1)
+        mlflow.log_metric("MSE", mse_rf)
+        mlflow.log_metric("R2_Score", r2_rf)
+        mlflow.sklearn.log_model(rf, "advanced_rf_model")
+        print(f"Advanced RF -> MSE: {mse_rf:.4f} | R2: {r2_rf:.4f}")
         
-        print(f"Advanced Accuracy: {rf_acc:.4f} | Weighted F1: {rf_f1:.4f}")
-        
-        importances = pd.Series(rf.feature_importances_, index=X.columns).sort_values(ascending=False)
-        print("\n--- Mathematical Feature Importances ---")
-        for feature, score in importances.items():
-            print(f"{feature}: {score:.4f}")
-            mlflow.log_metric(f"importance_{feature}", float(score))
-            
-        mlflow.sklearn.log_model(sk_model=rf, artifact_path="advanced_model")
-        
-        if rf_f1 > best_f1:
-            best_f1 = rf_f1
-            best_model = rf
+        if r2_rf > best_r2:
+            best_r2, best_model = r2_rf, rf
 
-    # =========================================================================
-    # CENTRALIZED REGISTRY & MODEL EXPORT
-    # =========================================================================
-    print("\n--- Selecting Final Pipeline Winner ---")
-    winner_name = "RandomForestClassifier" if isinstance(best_model, RandomForestClassifier) else "LogisticRegression"
-    print(f"Winning model based on Weighted F1-Score: {winner_name} ({best_f1:.4f})")
-
-    with mlflow.start_run(run_name="Final_Model_Registration"):
-        mlflow.log_param("selected_winner", winner_name)
-        mlflow.log_metric("final_winning_f1", best_f1)
-        
-        mlflow.sklearn.log_model(
-            sk_model=best_model, 
-            artifact_path="model",
-            registered_model_name="Truck_Telemetry_Model"
-        )
-            
-    os.makedirs("models", exist_ok=True)
-    model_output_path = os.path.join("models", "truck_telemetry_model_all_features.pkl")
+    # --- MODEL REGISTRATION ---
+    winner_name = "RandomForest" if isinstance(best_model, RandomForestRegressor) else "LinearRegression"
+    print(f"\n🏆 Champion Model Selected: {winner_name} (R2: {best_r2:.4f})")
     
-    with open(model_output_path, "wb") as f:
-        pickle.dump(best_model, f)
+    with mlflow.start_run(run_name="Final_Model_Registration"):
+        mlflow.sklearn.log_model(best_model, "model", registered_model_name="Delivery_Efficiency_Model")
         
-    print(f"\nChampion model configuration saved successfully for production to: {model_output_path}")
+    os.makedirs("models", exist_ok=True)
+    with open("models/truck_telemetry_model_all_features.pkl", "wb") as f:
+        pickle.dump(best_model, f)
+    print("Model successfully saved inside models/ directory.")
 
 if __name__ == "__main__":
     train_and_compare_models()
