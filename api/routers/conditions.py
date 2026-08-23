@@ -10,7 +10,6 @@ router = APIRouter(
 
 
 
-
 FEATURES = [
     "weather_impact_index",
     "average_speed_kmph",
@@ -20,35 +19,32 @@ FEATURES = [
 
 MODEL_NAME = "conditions-route-reliability"
 
-LABEL_MAPPING = {
-    0: "Low",
-    1: "Medium",
-    2: "High",
-}
 
 
-
-# Loaded by api/main.py during FastAPI startup.
 model = None
 model_version = "unknown"
 
 
 def set_model(loaded_model, version):
-    """Set the model loaded by the FastAPI application."""
 
     global model
     global model_version
 
     model = loaded_model
-    model_version = version
+    model_version = str(version)
+
 
 def is_model_loaded():
-    """Return whether the Conditions model is currently loaded."""
-
     return model is not None
 
 
+def get_model_version():
+    return model_version
+
+
+
 class ConditionsInput(BaseModel):
+
     weather_impact_index: float = Field(
         ...,
         ge=0.0,
@@ -65,8 +61,8 @@ class ConditionsInput(BaseModel):
 
     time_of_day: int = Field(
         ...,
-        ge=0.0,
-        le=23.0,
+        ge=0,
+        le=23,
         description="Hour of day, from 0 to 23",
     )
 
@@ -81,8 +77,14 @@ class ConditionsInput(BaseModel):
 
 
 class ConditionsOutput(BaseModel):
-    predicted_reliability: str
+
+    predicted_route_reliability_index: float = Field(
+        ...,
+        description="Predicted route reliability index",
+    )
+
     model_name: str
+
     model_version: str
 
 
@@ -91,8 +93,12 @@ class ConditionsOutput(BaseModel):
     "/predict",
     response_model=ConditionsOutput,
 )
-def predict_conditions(data: ConditionsInput):
-    """Predict route reliability from Conditions features."""
+def predict_conditions(
+    data: ConditionsInput,
+):
+
+
+
 
     if model is None:
         raise HTTPException(
@@ -101,52 +107,59 @@ def predict_conditions(data: ConditionsInput):
         )
 
     try:
-        # Convert request to DataFrame and enforce
-        # exactly the same column order as training.
+
+
 
         input_df = pd.DataFrame(
             [data.model_dump()]
         )[FEATURES]
 
-        input_df["weather_impact_index"] = (
-            input_df["weather_impact_index"].astype("float64")
+
+
+        input_df = input_df.astype(
+            {
+                "weather_impact_index": "float64",
+                "average_speed_kmph": "float64",
+                "time_of_day": "float64",
+                "traffic_density_index": "float64",
+            }
         )
 
-        input_df["average_speed_kmph"] = (
-            input_df["average_speed_kmph"].astype("float64")
-        )
 
-        input_df["time_of_day"] = (
-            input_df["time_of_day"].astype("int32")
-        )
-
-        input_df["traffic_density_index"] = (
-            input_df["traffic_density_index"].astype("float64")
-        )
 
         prediction = model.predict(
             input_df
         )
-        
 
-        predicted_class = int(
+        if prediction is None or len(prediction) == 0:
+            raise ValueError(
+                "Model returned an empty prediction."
+            )
+
+        # XGBoost regression returns a numeric value.
+        predicted_index = float(
             prediction[0]
         )
 
-        label = LABEL_MAPPING.get(
-            predicted_class
-        )
 
-        if label is None:
+
+        if not pd.notna(
+            predicted_index
+        ):
             raise ValueError(
-                f"Unexpected prediction class: "
-                f"{predicted_class}"
+                "Model returned an invalid "
+                "route reliability index."
             )
 
+
         return ConditionsOutput(
-            predicted_reliability=label,
+            predicted_route_reliability_index=(
+                predicted_index
+            ),
             model_name=MODEL_NAME,
-            model_version=model_version,
+            model_version=str(
+                model_version
+            ),
         )
 
     except HTTPException:
@@ -155,5 +168,7 @@ def predict_conditions(data: ConditionsInput):
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Prediction failed: {exc}",
+            detail=(
+                f"Prediction failed: {exc}"
+            ),
         ) from exc

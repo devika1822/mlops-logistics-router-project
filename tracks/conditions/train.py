@@ -4,21 +4,17 @@ import os
 import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
+import numpy as np
 import pandas as pd
 
 from mlflow.models import infer_signature
-
 from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
 )
-from sklearn.tree import DecisionTreeClassifier
-
-from xgboost import XGBClassifier
+from sklearn.tree import DecisionTreeRegressor
+from xgboost import XGBRegressor
 
 
 
@@ -29,50 +25,56 @@ FEATURES = [
     "traffic_density_index",
 ]
 
-TARGET = "reliability_class"
-
-LABEL_MAPPING = {
-    "Low": 0,
-    "Medium": 1,
-    "High": 2,
-}
-
-LABEL_NAMES = [
-    "Low",
-    "Medium",
-    "High",
-]
+TARGET = "route_reliability_index"
 
 RANDOM_SEED = 42
+
+MODEL_NAME = "conditions-route-reliability"
 
 MLFLOW_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
     "http://127.0.0.1:5002",
 )
 
-MLFLOW_EXPERIMENT = (
-    "conditions_route_reliability"
+MLFLOW_EXPERIMENT = os.getenv(
+    "MLFLOW_EXPERIMENT",
+    "conditions-model-training",
 )
 
 
 
 
-def load_data(train_path, test_path):
-    """Load Spark-generated Parquet datasets."""
-
-    train_df = pd.read_parquet(
-        train_path
-    )
-
-    test_df = pd.read_parquet(
-        test_path
-    )
-
-    return train_df, test_df
-
-
 def prepare_data(train_df, test_df):
+    """
+    Validate and prepare training/test data for regression.
 
+    The model directly predicts the numeric
+    route_reliability_index target.
+    """
+
+    required_columns = FEATURES + [TARGET]
+
+    missing_train = [
+        column
+        for column in required_columns
+        if column not in train_df.columns
+    ]
+
+    missing_test = [
+        column
+        for column in required_columns
+        if column not in test_df.columns
+    ]
+
+    if missing_train:
+        raise ValueError(
+            f"Missing columns in training data: {missing_train}"
+        )
+
+    if missing_test:
+        raise ValueError(
+            f"Missing columns in test data: {missing_test}"
+        )
 
     X_train = (
         train_df[FEATURES]
@@ -86,198 +88,77 @@ def prepare_data(train_df, test_df):
         .astype("float64")
     )
 
-    y_train = train_df[TARGET].map(
-        LABEL_MAPPING
+    y_train = (
+        train_df[TARGET]
+        .copy()
+        .astype("float64")
     )
 
-    y_test = test_df[TARGET].map(
-        LABEL_MAPPING
+    y_test = (
+        test_df[TARGET]
+        .copy()
+        .astype("float64")
     )
 
-    if y_train.isna().any():
-        raise ValueError(
-            "Unknown or missing target class "
-            "found in training data."
+    return X_train, X_test, y_train, y_test
+
+
+
+
+def build_decision_tree():
+    return DecisionTreeRegressor(
+        max_depth=6,
+        min_samples_leaf=5,
+        random_state=RANDOM_SEED,
+    )
+
+
+def build_xgboost():
+    return XGBRegressor(
+        n_estimators=150,
+        max_depth=6,
+        learning_rate=0.125,
+        subsample=0.8,
+        colsample_bytree=1.0,
+        min_child_weight=3,
+        gamma=0.2,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
+        objective="reg:squarederror",
+        eval_metric="rmse",
+        random_state=RANDOM_SEED,
+        n_jobs=-1,
+    )
+
+
+def evaluate_model(model, X_test, y_test):
+    """
+    Calculate regression metrics.
+    """
+
+    predictions = model.predict(X_test)
+
+    mae = mean_absolute_error(
+        y_test,
+        predictions,
+    )
+
+    rmse = np.sqrt(
+        mean_squared_error(
+            y_test,
+            predictions,
         )
-
-    if y_test.isna().any():
-        raise ValueError(
-            "Unknown or missing target class "
-            "found in test data."
-        )
-
-    return (
-        X_train,
-        X_test,
-        y_train,
-        y_test,
     )
 
-
-
-
-def evaluate_model(
-    model,
-    X_test,
-    y_test,
-):
-    """Evaluate a trained classification model."""
-
-    predictions = model.predict(
-        X_test
-    )
-
-    accuracy = accuracy_score(
-        y_test,
-        predictions,
-    )
-
-    precision = precision_score(
-        y_test,
-        predictions,
-        average="macro",
-        zero_division=0,
-    )
-
-    recall = recall_score(
-        y_test,
-        predictions,
-        average="macro",
-        zero_division=0,
-    )
-
-    macro_f1 = f1_score(
-        y_test,
-        predictions,
-        average="macro",
-        zero_division=0,
-    )
-
-    report = classification_report(
-        y_test,
-        predictions,
-        target_names=LABEL_NAMES,
-        zero_division=0,
-    )
-
-    matrix = confusion_matrix(
+    r2 = r2_score(
         y_test,
         predictions,
     )
 
     return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "macro_f1": macro_f1,
-        "report": report,
-        "matrix": matrix,
-        "predictions": predictions,
-    }
-
-
-
-
-def get_feature_importance(model):
-    """Return feature importance in descending order."""
-
-    importance_df = pd.DataFrame(
-        {
-            "feature": FEATURES,
-            "importance": (
-                model.feature_importances_
-            ),
-        }
-    )
-
-    return (
-        importance_df
-        .sort_values(
-            by="importance",
-            ascending=False,
-        )
-        .reset_index(drop=True)
-    )
-
-
-
-def save_artifacts(
-    model_name,
-    metrics,
-    model,
-    output_dir,
-):
-    """Save evaluation artifacts."""
-
-    model_dir = os.path.join(
-        output_dir,
-        model_name,
-    )
-
-    os.makedirs(
-        model_dir,
-        exist_ok=True,
-    )
-
-
-
-    report_path = os.path.join(
-        model_dir,
-        "classification_report.txt",
-    )
-
-    with open(
-        report_path,
-        "w",
-    ) as file:
-        file.write(
-            metrics["report"]
-        )
-
-
-
-    confusion_matrix_path = os.path.join(
-        model_dir,
-        "confusion_matrix.txt",
-    )
-
-    with open(
-        confusion_matrix_path,
-        "w",
-    ) as file:
-
-        file.write(
-            "Labels: Low, Medium, High\n\n"
-        )
-
-        file.write(
-            str(metrics["matrix"])
-        )
-
-
-
-    feature_importance_df = (
-        get_feature_importance(model)
-    )
-
-    feature_importance_path = os.path.join(
-        model_dir,
-        "feature_importance.csv",
-    )
-
-    feature_importance_df.to_csv(
-        feature_importance_path,
-        index=False,
-    )
-
-    return {
-        "report": report_path,
-        "confusion_matrix": (
-            confusion_matrix_path
-        ),
-        "feature_importance": (
-            feature_importance_path
-        ),
+        "mae": float(mae),
+        "rmse": float(rmse),
+        "r2": float(r2),
     }
 
 
@@ -286,13 +167,47 @@ def save_artifacts(
 def log_model_run(
     model_name,
     model,
-    metrics,
     X_train,
-    train_rows,
-    test_rows,
-    output_dir,
+    y_train,
+    X_test,
+    y_test,
 ):
-    """Log one model as a nested MLflow run."""
+    """
+    Train, evaluate and log one model
+    as a nested MLflow run.
+    """
+
+    print("\n" + "=" * 60)
+    print(model_name)
+    print("=" * 60)
+
+
+    model.fit(
+        X_train,
+        y_train,
+    )
+
+
+
+    metrics = evaluate_model(
+        model,
+        X_test,
+        y_test,
+    )
+
+    print(
+        f"MAE  : {metrics['mae']:.4f}"
+    )
+
+    print(
+        f"RMSE : {metrics['rmse']:.4f}"
+    )
+
+    print(
+        f"R²   : {metrics['r2']:.4f}"
+    )
+
+
 
     with mlflow.start_run(
         run_name=model_name,
@@ -301,110 +216,65 @@ def log_model_run(
 
 
 
-        mlflow.log_param(
-            "train_rows",
-            train_rows,
+        if hasattr(model, "get_params"):
+
+            params = model.get_params()
+
+            for key, value in params.items():
+
+                if value is not None:
+
+                    # Convert complex values to strings
+                    # before sending them to MLflow.
+                    if isinstance(
+                        value,
+                        (dict, list, tuple),
+                    ):
+                        value = str(value)
+
+                    mlflow.log_param(
+                        key,
+                        value,
+                    )
+
+
+
+        mlflow.log_metrics(
+            metrics
         )
 
-        mlflow.log_param(
-            "test_rows",
-            test_rows,
+
+
+        mlflow.set_tag(
+            "model_type",
+            model_name,
         )
 
-        mlflow.log_param(
-            "features",
-            ",".join(FEATURES),
-        )
-
-        mlflow.log_param(
+        mlflow.set_tag(
             "target",
             TARGET,
         )
 
-        mlflow.log_param(
-            "random_seed",
-            RANDOM_SEED,
+        mlflow.set_tag(
+            "problem_type",
+            "regression",
         )
 
 
 
-        model_params = model.get_params()
-
-        for parameter, value in model_params.items():
-
-            if value is None:
-                continue
-
-            if isinstance(
-                value,
-                (dict, list, tuple),
-            ):
-                value = str(value)
-
-            mlflow.log_param(
-                parameter,
-                value,
-            )
-
-
-
-        mlflow.log_metric(
-            "accuracy",
-            metrics["accuracy"],
-        )
-
-        mlflow.log_metric(
-            "macro_precision",
-            metrics["precision"],
-        )
-
-        mlflow.log_metric(
-            "macro_recall",
-            metrics["recall"],
-        )
-
-        mlflow.log_metric(
-            "macro_f1",
-            metrics["macro_f1"],
-        )
-
-
-
-        input_example = X_train.head(3)
-
-        example_predictions = (
-            model.predict(
-                input_example
-            )
-        )
+        input_example = X_train.head(1)
 
         signature = infer_signature(
-            input_example,
-            example_predictions,
+            X_train,
+            model.predict(input_example),
         )
 
 
-        artifacts = save_artifacts(
-            model_name=model_name,
-            metrics=metrics,
-            model=model,
-            output_dir=output_dir,
-        )
 
-        mlflow.log_artifact(
-            artifacts["report"]
-        )
-
-        mlflow.log_artifact(
-            artifacts["confusion_matrix"]
-        )
-
-        mlflow.log_artifact(
-            artifacts["feature_importance"]
-        )
-
-
-        if model_name == "XGBoost":
+        if isinstance(
+            model,
+            XGBRegressor,
+        ):
 
             mlflow.xgboost.log_model(
                 model,
@@ -423,201 +293,11 @@ def log_model_run(
                 input_example=input_example,
             )
 
-
-
         print(
             f"\nMLflow run logged: {model_name}"
         )
 
-        print(
-            f"Accuracy : "
-            f"{metrics['accuracy']:.4f}"
-        )
-
-        print(
-            f"Precision: "
-            f"{metrics['precision']:.4f}"
-        )
-
-        print(
-            f"Recall   : "
-            f"{metrics['recall']:.4f}"
-        )
-
-        print(
-            f"Macro F1 : "
-            f"{metrics['macro_f1']:.4f}"
-        )
-
-        return metrics["macro_f1"]
-
-
-
-
-def train_models(
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-    train_rows,
-    test_rows,
-    output_dir,
-):
-
-
-    results = []
-
-
-    decision_tree = DecisionTreeClassifier(
-        max_depth=5,
-        random_state=RANDOM_SEED,
-    )
-
-    decision_tree.fit(
-        X_train,
-        y_train,
-    )
-
-    dt_metrics = evaluate_model(
-        decision_tree,
-        X_test,
-        y_test,
-    )
-
-    print(
-        "\n" + "=" * 60
-    )
-
-    print("Decision Tree")
-
-    print("=" * 60)
-
-    print(
-        f"Accuracy : "
-        f"{dt_metrics['accuracy']:.4f}"
-    )
-
-    print(
-        f"Precision: "
-        f"{dt_metrics['precision']:.4f}"
-    )
-
-    print(
-        f"Recall   : "
-        f"{dt_metrics['recall']:.4f}"
-    )
-
-    print(
-        f"Macro F1 : "
-        f"{dt_metrics['macro_f1']:.4f}"
-    )
-
-    dt_f1 = log_model_run(
-        model_name="Decision_Tree",
-        model=decision_tree,
-        metrics=dt_metrics,
-        X_train=X_train,
-        train_rows=train_rows,
-        test_rows=test_rows,
-        output_dir=output_dir,
-    )
-
-    results.append(
-        {
-            "model": "Decision Tree",
-            "accuracy": (
-                dt_metrics["accuracy"]
-            ),
-            "precision": (
-                dt_metrics["precision"]
-            ),
-            "recall": (
-                dt_metrics["recall"]
-            ),
-            "f1": dt_f1,
-        }
-    )
-
-
-    xgb_model = XGBClassifier(
-        n_estimators=100,
-        max_depth=5,
-        learning_rate=0.1,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        objective="multi:softmax",
-        num_class=3,
-        eval_metric="mlogloss",
-        random_state=RANDOM_SEED,
-        n_jobs=-1,
-    )
-
-    xgb_model.fit(
-        X_train,
-        y_train,
-    )
-
-    xgb_metrics = evaluate_model(
-        xgb_model,
-        X_test,
-        y_test,
-    )
-
-    print(
-        "\n" + "=" * 60
-    )
-
-    print("XGBoost")
-
-    print("=" * 60)
-
-    print(
-        f"Accuracy : "
-        f"{xgb_metrics['accuracy']:.4f}"
-    )
-
-    print(
-        f"Precision: "
-        f"{xgb_metrics['precision']:.4f}"
-    )
-
-    print(
-        f"Recall   : "
-        f"{xgb_metrics['recall']:.4f}"
-    )
-
-    print(
-        f"Macro F1 : "
-        f"{xgb_metrics['macro_f1']:.4f}"
-    )
-
-    xgb_f1 = log_model_run(
-        model_name="XGBoost",
-        model=xgb_model,
-        metrics=xgb_metrics,
-        X_train=X_train,
-        train_rows=train_rows,
-        test_rows=test_rows,
-        output_dir=output_dir,
-    )
-
-    results.append(
-        {
-            "model": "XGBoost",
-            "accuracy": (
-                xgb_metrics["accuracy"]
-            ),
-            "precision": (
-                xgb_metrics["precision"]
-            ),
-            "recall": (
-                xgb_metrics["recall"]
-            ),
-            "f1": xgb_f1,
-        }
-    )
-
-    return results
+    return metrics["mae"], metrics
 
 
 
@@ -626,8 +306,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         description=(
-            "Train Conditions/Environment "
-            "classification models with MLflow"
+            "Train Conditions regression models"
         )
     )
 
@@ -646,7 +325,6 @@ def main():
     args = parser.parse_args()
 
 
-
     mlflow.set_tracking_uri(
         MLFLOW_URI
     )
@@ -656,69 +334,67 @@ def main():
     )
 
     print(
-        f"MLflow tracking URI: "
-        f"{MLFLOW_URI}"
-    )
-
-
-
-    print(
-        "\nLoading processed datasets..."
-    )
-
-    train_df, test_df = load_data(
-        args.train,
-        args.test,
-    )
-
-    train_rows = len(
-        train_df
-    )
-
-    test_rows = len(
-        test_df
+        f"MLflow tracking URI: {MLFLOW_URI}"
     )
 
     print(
-        f"Training rows: {train_rows}"
+        f"MLflow experiment: {MLFLOW_EXPERIMENT}"
+    )
+
+
+
+    print("\nLoading processed datasets...")
+
+    train_df = pd.read_parquet(
+        args.train
+    )
+
+    test_df = pd.read_parquet(
+        args.test
     )
 
     print(
-        f"Test rows: {test_rows}"
-    )
-
-
-    (
-        X_train,
-        X_test,
-        y_train,
-        y_test,
-    ) = prepare_data(
-        train_df,
-        test_df,
+        f"Training rows: {len(train_df)}"
     )
 
     print(
-        "\nFeatures:"
+        f"Test rows: {len(test_df)}"
     )
+
+    print("\nFeatures:")
 
     for feature in FEATURES:
-        print(
-            f"  - {feature}"
-        )
+        print(f"  - {feature}")
 
     print(
         f"\nTarget: {TARGET}"
     )
 
 
+    X_train, X_test, y_train, y_test = prepare_data(
+        train_df,
+        test_df,
+    )
+
+
+
     with mlflow.start_run(
         run_name="Model_Comparison"
     ) as parent_run:
 
+        mlflow.set_tag(
+            "problem_type",
+            "regression",
+        )
+
+        mlflow.set_tag(
+            "target",
+            TARGET,
+        )
+
         mlflow.log_param(
-            "comparison_type",
-            "Decision Tree vs XGBoost",
+            "random_seed",
+            RANDOM_SEED,
         )
 
         mlflow.log_param(
@@ -731,82 +407,123 @@ def main():
             ",".join(FEATURES),
         )
 
-        mlflow.log_param(
-            "target",
-            TARGET,
+
+
+        decision_tree = build_decision_tree()
+
+        dt_mae, dt_metrics = log_model_run(
+            "Decision_Tree",
+            decision_tree,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
         )
 
-        mlflow.log_param(
-            "train_rows",
-            train_rows,
+
+
+        xgb_model = build_xgboost()
+
+        xgb_mae, xgb_metrics = log_model_run(
+            "XGBoost",
+            xgb_model,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
         )
 
-        mlflow.log_param(
-            "test_rows",
-            test_rows,
+
+
+        comparison = pd.DataFrame(
+            [
+                {
+                    "model": "Decision Tree",
+                    "mae": dt_metrics["mae"],
+                    "rmse": dt_metrics["rmse"],
+                    "r2": dt_metrics["r2"],
+                },
+                {
+                    "model": "XGBoost",
+                    "mae": xgb_metrics["mae"],
+                    "rmse": xgb_metrics["rmse"],
+                    "r2": xgb_metrics["r2"],
+                },
+            ]
         )
 
-
-
-        results = train_models(
-            X_train=X_train,
-            y_train=y_train,
-            X_test=X_test,
-            y_test=y_test,
-            train_rows=train_rows,
-            test_rows=test_rows,
-            output_dir="reports/conditions",
-        )
-
-   
+        print("\n" + "=" * 60)
+        print("MODEL COMPARISON")
+        print("=" * 60)
 
         print(
-            "\n" + "=" * 60
-        )
-
-        print(
-            "MODEL COMPARISON"
-        )
-
-        print(
-            "=" * 60
-        )
-
-        results_df = pd.DataFrame(
-            results
-        )
-
-        print(
-            results_df.to_string(
-                index=False,
-                float_format=(
-                    lambda x: f"{x:.4f}"
-                ),
+            comparison.to_string(
+                index=False
             )
         )
 
-        best_model = results_df.loc[
-            results_df["f1"].idxmax()
+
+
+        best_index = comparison[
+            "mae"
+        ].idxmin()
+
+        best_model_name = comparison.loc[
+            best_index,
+            "model",
+        ]
+
+        best_mae = comparison.loc[
+            best_index,
+            "mae",
+        ]
+
+        best_rmse = comparison.loc[
+            best_index,
+            "rmse",
+        ]
+
+        best_r2 = comparison.loc[
+            best_index,
+            "r2",
         ]
 
         print(
-            f"\nBest model based on Macro F1: "
-            f"{best_model['model']}"
+            f"\nBest model based on MAE: "
+            f"{best_model_name}"
         )
 
         print(
-            f"Best Macro F1: "
-            f"{best_model['f1']:.4f}"
+            f"Best MAE : {best_mae:.4f}"
+        )
+
+        print(
+            f"Best RMSE: {best_rmse:.4f}"
+        )
+
+        print(
+            f"Best R²  : {best_r2:.4f}"
+        )
+
+
+        mlflow.log_metric(
+            "best_model_mae",
+            float(best_mae),
         )
 
         mlflow.log_metric(
-            "best_macro_f1",
-            best_model["f1"],
+            "best_model_rmse",
+            float(best_rmse),
+        )
+
+        mlflow.log_metric(
+            "best_model_r2",
+            float(best_r2),
         )
 
         mlflow.set_tag(
             "best_model",
-            best_model["model"],
+            best_model_name,
         )
 
         print(
