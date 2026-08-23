@@ -24,15 +24,12 @@ def train_final_model():
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Extract feature metadata for MLflow logging
     feature_list_str = ",".join(X.columns.tolist())
     feature_count = len(X.columns)
     training_rows = len(X_train)
 
-    # --- STEP 1: Log Candidates under 'Cost Track' Experiment ---
     mlflow.set_experiment("Cost Track")
 
-    # Linear Regression Candidate Run
     print("\n--- Evaluating Linear Regression Candidate ---")
     with mlflow.start_run(run_name="cost_candidate_linear_regression"):
         lr = LinearRegression()
@@ -53,7 +50,6 @@ def train_final_model():
         mlflow.sklearn.log_model(lr, artifact_path="model")
         print(f"Linear Regression -> MSE: {lr_mse:.4f} | R2: {lr_r2:.4f}")
 
-    # Random Forest Candidate Run
     print("\n--- Evaluating Random Forest Candidate ---")
     config_path = "config/best_params_da25g503.json"
     if os.path.exists(config_path):
@@ -83,7 +79,6 @@ def train_final_model():
         mlflow.sklearn.log_model(rf, artifact_path="model")
         print(f"Random Forest -> MSE: {rf_mse:.4f} | R2: {rf_r2:.4f}")
 
-    # --- STEP 2: Compare Models ---
     if rf_r2 > lr_r2:
         winning_type = "random_forest"
         best_model = rf
@@ -97,7 +92,6 @@ def train_final_model():
 
     print(f"\nSelection Complete -> Winner: {winning_type} with R2: {best_r2:.4f}")
 
-    # --- STEP 3: Log Winner to 'Cost Production' Experiment & Register ---
     mlflow.set_experiment("Cost Production")
     production_run_name = f"cost_final_{winning_type}"
 
@@ -112,7 +106,6 @@ def train_final_model():
         mlflow.log_metric("final_mse", best_mse)
         mlflow.log_metric("final_r2", best_r2)
         
-        # Register the winning model under the new cost registry name
         mlflow.sklearn.log_model(
             sk_model=best_model,
             artifact_path="model",
