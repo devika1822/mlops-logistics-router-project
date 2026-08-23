@@ -1,0 +1,23 @@
+{
+    "features": [
+        "weather_impact_index",
+        "time_of_day",
+        "average_speed_kmph",
+        "traffic_density_index"
+    ],
+    "target": "route_reliability_index",
+    "target_type": "classification",
+    "classes": [
+        "Low",
+        "Medium",
+        "High"
+    ],
+    "low_medium_threshold": 0.554,
+    "medium_high_threshold": 0.66,
+    "test_size": 0.2,
+    "random_seed": 42,
+    "input_rows": 1000,
+    "cleaned_rows": 1000,
+    "train_rows": 838,
+    "test_rows": 162
+}
