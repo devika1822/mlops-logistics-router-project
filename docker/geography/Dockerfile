@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir \
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "tracks.geography.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.routers.geography:app", "--host", "0.0.0.0", "--port", "8000"]
