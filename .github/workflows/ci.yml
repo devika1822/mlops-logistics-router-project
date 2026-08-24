@@ -1,4 +1,4 @@
-name: MLOps CI Pipeline
+name: RouteSense CI Pipeline
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
 
       - name: Validate Python syntax
         run: |
-          python -m compileall tracks pipelines api
+          python -m compileall tracks pipelines api monitoring
 
       - name: Validate Docker Compose
         run: |
@@ -41,14 +41,26 @@ jobs:
             -f docker/geography/Dockerfile \
             -t geography-api:ci .
 
+      - name: Build Conditions API
+        run: |
+          docker build \
+            -f docker/conditions/Dockerfile \
+            -t conditions-api:ci .
+
       - name: Build Cost API
         run: |
           docker build \
             -f docker/cost/Dockerfile \
             -t cost-api:ci .
 
-      - name: Build Conditions API
+      - name: Build Payload API
         run: |
           docker build \
-            -f docker/conditions/Dockerfile \
-            -t conditions-api:ci .
+            -f docker/vehicle/Dockerfile \
+            -t payload-api:ci .
+
+      - name: Build Integration API
+        run: |
+          docker build \
+            -f docker/integration/Dockerfile \
+            -t integration-api:ci .

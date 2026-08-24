@@ -167,5 +167,22 @@ services:
     volumes:
       - ./monitoring/conditions:/opt/project/monitoring/conditions  
 
+  integration-api:
+    build:
+      context: .
+      dockerfile: docker/integration/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - geography-api
+      - conditions-api
+      - cost-api
+      - telemetry-api
+    environment:
+      GEOGRAPHY_URL: http://geography-api:8000/predict
+      CONDITIONS_URL: http://conditions-api:8000/api/v1/conditions/predict
+      COST_URL: http://cost-api:8000/predict
+      PAYLOAD_URL: http://telemetry-api:8000/api/v1/payload    
+
 volumes:
   airflow-db-data:
