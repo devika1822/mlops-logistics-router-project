@@ -1,0 +1,7 @@
+FROM apache/spark:4.2.0-scala2.13-java21-python3-ubuntu
+
+USER root
+
+RUN pip install --no-cache-dir pandas
+
+WORKDIR /opt/project

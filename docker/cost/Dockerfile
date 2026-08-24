@@ -1,8 +1,18 @@
-# TBD by Student 1 (Geography & Route track)
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+FROM python:3.12-slim
+
+WORKDIR /opt/project
+
+RUN pip install --no-cache-dir \
+    "setuptools<81" \
+    "mlflow==2.14.1" \
+    fastapi \
+    "uvicorn[standard]" \
+    pandas \
+    numpy \
+    scikit-learn
+
+ENV PYTHONUNBUFFERED=1
+
 COPY . .
-EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+CMD ["uvicorn", "api.routers.app_cost_da25g503:app", "--host", "0.0.0.0", "--port", "8000"]

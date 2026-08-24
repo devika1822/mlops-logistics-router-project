@@ -47,7 +47,7 @@ RANDOM_SEED = 42
 
 MLFLOW_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
-    "http://127.0.0.1:5002",
+    "http://localhost:5000",
 )
 
 MLFLOW_EXPERIMENT = (

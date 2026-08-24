@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException, Body
 import pandas as pd
 import numpy as np
@@ -9,7 +10,13 @@ app = FastAPI(
     version="1.0"
 )
 
-mlflow.set_tracking_uri("http://localhost:5000")
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "http://localhost:5000",
+)
+
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
 MODEL_URI = "models:/cost_route_cost_model/latest"
 
 def load_model():

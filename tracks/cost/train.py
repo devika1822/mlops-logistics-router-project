@@ -9,9 +9,15 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score
 
+
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "http://localhost:5000",
+)
+
 def train_final_model():
     print("=== Phase 3: Commencing Cost Candidate Tracking & Model Selection ===")
-    mlflow.set_tracking_uri("http://localhost:5000")
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     
     df = pd.read_csv("data/processed/clean_cost_da25g503.csv")
     
@@ -51,7 +57,7 @@ def train_final_model():
         print(f"Linear Regression -> MSE: {lr_mse:.4f} | R2: {lr_r2:.4f}")
 
     print("\n--- Evaluating Random Forest Candidate ---")
-    config_path = "config/best_params_da25g503.json"
+    config_path = ""tracks/cost/best_params_da25g503.json""
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
             best_params = json.load(f)

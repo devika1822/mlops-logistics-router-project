@@ -8,7 +8,12 @@ from sklearn.ensemble import RandomForestRegressor
 
 def tune_hyperparameters():
     print("=== Phase 2: Starting Automated Hyperparameter Optimization Sweeps ===")
-    mlflow.set_tracking_uri("http://localhost:5000")
+
+    MLFLOW_TRACKING_URI = os.getenv(
+      "MLFLOW_TRACKING_URI",
+      "http://localhost:5000",
+    )
+    
     mlflow.set_experiment("Truck_Cost_Hyperparameter_Tuning")
     
     df = pd.read_csv("data/processed/clean_cost_da25g503.csv")
@@ -47,8 +52,8 @@ def tune_hyperparameters():
         
         search.fit(X_train, y_train)
         
-        os.makedirs("config", exist_ok=True)
-        with open("config/best_params_da25g503.json", "w") as f:
+        os.makedirs("tracks/cost", exist_ok=True)
+        with open(""tracks/cost/best_params_da25g503.json"", "w") as f:
             json.dump(search.best_params_, f, indent=4)
             
         print("\n Tuning Search Wave Complete!")

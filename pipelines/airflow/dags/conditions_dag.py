@@ -7,23 +7,48 @@ from docker.types import Mount
 
 PROJECT_PATH = r"C:\Users\HP\mlops-logistics-router-project"
 
+RAW_DATA_PATH = (
+    "/opt/project/data/raw/"
+    "ecommerce_logistics_route_planning_dataset.csv"
+)
+
+PROCESSED_DATA_PATH = (
+    "/opt/project/data/processed/conditions"
+)
+
+TRAIN_DATA_PATH = (
+    "/opt/project/data/processed/conditions/train"
+)
+
+TEST_DATA_PATH = (
+    "/opt/project/data/processed/conditions/test"
+)
+
 
 with DAG(
-    dag_id="cost_pipeline",
-    description="Cost track preprocessing and final model training pipeline",
+    dag_id="conditions_pipeline",
+    description=(
+        "Conditions track preprocessing "
+        "and final model registration"
+    ),
     start_date=datetime(2026, 8, 18),
     schedule=None,
     catchup=False,
-    tags=["cost"],
+    tags=["conditions"],
 ) as dag:
 
     spark_preprocessing = DockerOperator(
         task_id="spark_preprocessing",
-        image="cost-spark:latest",
+        image="apache/spark:4.2.0-scala2.13-java21-python3-ubuntu",
         command=(
             "/opt/spark/bin/spark-submit "
             "--master local[*] "
-            "/opt/project/pipelines/spark/cost/spark_preprocessing.py"
+            "/opt/project/pipelines/spark/conditions/"
+            "spark_preprocessing.py "
+            f"--input {RAW_DATA_PATH} "
+            f"--output {PROCESSED_DATA_PATH} "
+            "--test-size 0.2 "
+            "--seed 42"
         ),
         docker_url="unix://var/run/docker.sock",
         network_mode="bridge",
@@ -39,12 +64,14 @@ with DAG(
         ],
     )
 
-    train_final_model = DockerOperator(
-        task_id="train_final_model",
-        image="cost-trainer:latest",
+    register_final_model = DockerOperator(
+        task_id="register_final_model",
+        image="conditions-trainer:latest",
         command=(
             "python "
-            "/opt/project/tracks/cost/train.py"
+            "/opt/project/tracks/conditions/register_model.py "
+            f"--train {TRAIN_DATA_PATH} "
+            f"--test {TEST_DATA_PATH}"
         ),
         docker_url="unix://var/run/docker.sock",
         network_mode="mlops-logistics-router-project_default",
@@ -62,4 +89,4 @@ with DAG(
         ],
     )
 
-    spark_preprocessing >> train_final_model
+    spark_preprocessing >> register_final_model

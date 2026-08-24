@@ -1,19 +1,9 @@
 version: "3.8"
 
-# ==============================================================================
-# Fleet Logistics MLOps Pipeline — docker-compose skeleton
-# Covers: Kafka streaming, Airflow orchestration, MLflow tracking,
-#         and 4 independent FastAPI services (one per track).
-#
-# NOTE: This is a STARTING SKELETON, not a finished file. Fill in the TBD
-# sections as each track's service gets built. Ports are pre-assigned below
-# so nobody collides when adding their service.
-# ==============================================================================
-
 services:
 
   # ---------------------------------------------------------------------------
-  # Kafka streaming (simulates live fleet/order data)
+  # Kafka streaming
   # ---------------------------------------------------------------------------
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
@@ -39,8 +29,7 @@ services:
       - "29092:29092"
 
   # ---------------------------------------------------------------------------
-  # Airflow (single-node dev setup: Postgres metadata DB + webserver + scheduler)
-  # Uses LocalExecutor — fine for a course project, not for real production scale.
+  # Airflow
   # ---------------------------------------------------------------------------
   airflow-db:
     image: postgres:15
@@ -58,8 +47,17 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: mlops-logistics-router-airflow-key
     entrypoint: /bin/bash
-    command: -c "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com"
+    command: >
+      -c "airflow db init &&
+      airflow users create
+      --username admin
+      --password admin
+      --firstname Admin
+      --lastname User
+      --role Admin
+      --email admin@example.com"
 
   airflow-webserver:
     image: apache/airflow:2.9.0
@@ -68,8 +66,10 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: mlops-logistics-router-airflow-key
     volumes:
       - ./pipelines/airflow/dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8080:8080"
     command: webserver
@@ -81,12 +81,14 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: mlops-logistics-router-airflow-key
     volumes:
       - ./pipelines/airflow/dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock
     command: scheduler
 
   # ---------------------------------------------------------------------------
-  # MLflow tracking server — shared by all 4 tracks' training scripts
+  # MLflow
   # ---------------------------------------------------------------------------
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.14.1
@@ -97,19 +99,18 @@ services:
     command: >
       mlflow server
       --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
+      --serve-artifacts
+      --artifacts-destination /mlflow/artifacts
       --host 0.0.0.0
       --port 5000
 
   # ---------------------------------------------------------------------------
-  # Track services — one FastAPI container per track.
-  # Each has its OWN Dockerfile under docker/<track>/Dockerfile (TBD, build by
-  # the person owning that track). Ports are pre-assigned so there's no clash.
+  # Geography API
   # ---------------------------------------------------------------------------
-  geography-api:      # Student 1 — Geography & Route (trip duration under traffic)
+  geography-api:
     build:
-      context: ./tracks/geography
-      dockerfile: ../../docker/geography/Dockerfile   # TBD: create this Dockerfile
+      context: .
+      dockerfile: docker/geography/Dockerfile
     ports:
       - "8001:8000"
     depends_on:
@@ -117,10 +118,14 @@ services:
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
 
-  telemetry-api:       # Student 2 — Truck Telemetry (fuel consumption)
+  # ---------------------------------------------------------------------------
+  # Vehicle API
+  # Keep existing slot for later integration
+  # ---------------------------------------------------------------------------
+  telemetry-api:
     build:
       context: ./tracks/vehicle
-      dockerfile: ../../docker/vehicle/Dockerfile      # TBD: create this Dockerfile
+      dockerfile: ../../docker/vehicle/Dockerfile
     ports:
       - "8002:8000"
     depends_on:
@@ -128,10 +133,13 @@ services:
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
 
-  payload-api:          # Student 3 — Cargo Payload (engine wear from load)
+  # ---------------------------------------------------------------------------
+  # Cost API
+  # ---------------------------------------------------------------------------
+  cost-api:
     build:
-      context: ./tracks/cost
-      dockerfile: ../../docker/cost/Dockerfile         # TBD: create this Dockerfile
+      context: .
+      dockerfile: docker/cost/Dockerfile
     ports:
       - "8003:8000"
     depends_on:
@@ -139,33 +147,19 @@ services:
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
 
-  environment-api:      # Student 4 — Environment/Weather (aerodynamic fuel efficiency)
+  # ---------------------------------------------------------------------------
+  # Conditions API
+  # ---------------------------------------------------------------------------
+  conditions-api:
     build:
-      context: ./tracks/conditions
-      dockerfile: ../../docker/conditions/Dockerfile   # TBD: create this Dockerfile
+      context: .
+      dockerfile: docker/conditions/Dockerfile
     ports:
       - "8004:8000"
     depends_on:
       - mlflow
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
-
-  # ---------------------------------------------------------------------------
-  # Optional: a single gateway that reverse-proxies all 4 track APIs under one
-  # host:port for the demo video / report, so you can show "one system" even
-  # though it's 4 containers. TBD — only add this if integration time allows.
-  # ---------------------------------------------------------------------------
-  # gateway:
-  #   image: nginx:alpine
-  #   ports:
-  #     - "8000:80"
-  #   volumes:
-  #     - ./docker/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
-  #   depends_on:
-  #     - geography-api
-  #     - telemetry-api
-  #     - payload-api
-  #     - environment-api
 
 volumes:
   airflow-db-data:

@@ -57,14 +57,14 @@ MLFLOW_EXPERIMENT = (
 
 
 FINAL_MODEL_PARAMS = {
-    "n_estimators": 75,
+    "n_estimators": 150,
     "max_depth": 4,
-    "learning_rate": 0.125,
-    "subsample": 0.7,
-    "colsample_bytree": 1.0,
+    "learning_rate": 0.15,
+    "subsample": 0.6,
+    "colsample_bytree": 0.9,
     "min_child_weight": 1,
-    "gamma": 0.2,
-    "reg_alpha": 0.01,
+    "gamma": 0.0,
+    "reg_alpha": 0.0,
     "reg_lambda": 1.0,
 }
 

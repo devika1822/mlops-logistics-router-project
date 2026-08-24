@@ -1,0 +1,13 @@
+.git
+.venv
+.dvc
+.dvcignore
+__pycache__
+*.pyc
+
+models/mlflow/artifacts
+models/mlflow/mlflow.db
+
+monitoring/**/reports/*.html
+monitoring/**/prediction_logs.csv
+

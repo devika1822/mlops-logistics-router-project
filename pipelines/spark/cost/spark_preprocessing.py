@@ -18,7 +18,7 @@ def run_pyspark_pipeline():
         
     spark.sparkContext.setLogLevel("ERROR")
 
-    input_path = "data/raw/route_planning.csv"
+    input_path = "data/raw/ecommerce_logistics_route_planning_dataset.csv"
     if not os.path.exists(input_path):
         if os.path.exists("raw_truck_data.csv"):
             input_path = "raw_truck_data.csv"
