@@ -131,7 +131,8 @@ mlops-logistics-router-project/
 │   └── routers/
 │       ├── geography.py
 │       ├── conditions.py
-│       └── app_cost_da25g503.py
+│       ├── app_cost_da25g503.py
+│       └── payload.py
 │
 ├── data/
 │   ├── raw/
@@ -160,11 +161,13 @@ mlops-logistics-router-project/
 │   │   └── dags/
 │   │       ├── geography/
 │   │       ├── cost/
+│   │       ├── vehicle/
 │   │       └── conditions/
 │   │
 │   └── spark/
 │       ├── geography/
 │       ├── cost/
+│       ├── payload_cleaning/
 │       └── conditions/
 │
 ├── tracks/
