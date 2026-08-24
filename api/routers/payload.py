@@ -7,6 +7,11 @@ from fastapi import FastAPI, APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import logging
 
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+
 app = FastAPI(
     title="Payload Engine Wear Prediction API",
     description="Serves Payload/Vehicle engine wear predictions from MLflow",
@@ -20,7 +25,17 @@ except Exception as exc:
     logging.warning(f"Payload model not loaded: {exc}")
     _model_ready = False
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+LIVE_DATA_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+    / "payload_live.parquet"
+)
+
 router = APIRouter(prefix="/api/v1", tags=["payload"])
+
 
 
 class PayloadRequest(BaseModel):
@@ -60,6 +75,41 @@ def predict_engine_wear(req: PayloadRequest):
         traffic_density_index=req.traffic_density_index,
         weather_impact_index=req.weather_impact_index,
         overloaded_flag=overloaded_flag,
+    )
+
+        # Log live prediction data for Evidently monitoring
+    live_record = pd.DataFrame(
+        [
+            {
+                "cargo_weight_kg": req.cargo_weight_kg,
+                "vehicle_capacity_pct": req.vehicle_capacity_pct,
+                "delivery_deadline_hrs": req.delivery_deadline_hrs,
+                "trip_distance_km": req.trip_distance_km,
+                "traffic_density_index": req.traffic_density_index,
+                "weather_impact_index": req.weather_impact_index,
+                "overloaded_flag": float(overloaded_flag),
+                "engine_wear_score": float(score),
+                "prediction_timestamp": datetime.now().isoformat(),
+            }
+        ]
+    )
+
+    LIVE_DATA_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if LIVE_DATA_PATH.exists():
+        existing = pd.read_parquet(LIVE_DATA_PATH)
+
+        live_record = pd.concat(
+            [existing, live_record],
+            ignore_index=True,
+        )
+
+    live_record.to_parquet(
+        LIVE_DATA_PATH,
+        index=False,
     )
 
     warning = None

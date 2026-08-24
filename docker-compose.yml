@@ -132,6 +132,8 @@ services:
       - mlflow
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./data/processed:/opt/project/data/processed  
 
   # ---------------------------------------------------------------------------
   # Cost API
