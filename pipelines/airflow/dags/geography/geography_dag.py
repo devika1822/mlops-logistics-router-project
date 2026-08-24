@@ -8,6 +8,7 @@ from docker.types import Mount
 import os
 
 PROJECT_PATH = os.environ["PROJECT_PATH"]
+DOCKER_NETWORK = os.environ["DOCKER_NETWORK"]
 
 with DAG(
     dag_id="geography_pipeline",
@@ -45,7 +46,7 @@ with DAG(
         image="geography-trainer:latest",
         command="python /opt/project/tracks/geography/train_final.py",
         docker_url="unix://var/run/docker.sock",
-        network_mode="mlops-logistics-router-project_default",
+        network_mode= DOCKER_NETWORK,
         environment={
             "MLFLOW_TRACKING_URI": "http://mlflow:5000",
         },

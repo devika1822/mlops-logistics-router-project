@@ -8,6 +8,7 @@ from docker.types import Mount
 import os
 
 PROJECT_PATH = os.environ["PROJECT_PATH"]
+DOCKER_NETWORK = os.environ["DOCKER_NETWORK"]
 
 default_args = {
     "owner": "payload_track",
@@ -37,7 +38,7 @@ with DAG(
             "consume_payload_kafka.py"
         ),
         docker_url="unix://var/run/docker.sock",
-        network_mode="mlops-logistics-router-project_default",
+        network_mode=DOCKER_NETWORK,
         auto_remove=True,
         mount_tmp_dir=False,
         mounts=[
@@ -60,7 +61,7 @@ with DAG(
             "payload_cleaning.py'"
         ),
         docker_url="unix://var/run/docker.sock",
-        network_mode="mlops-logistics-router-project_default",
+        network_mode= DOCKER_NETWORK,
         user="root",
         auto_remove=True,
         mount_tmp_dir=False,
@@ -81,7 +82,7 @@ with DAG(
             "/opt/project/tracks/vehicle/train.py"
         ),
         docker_url="unix://var/run/docker.sock",
-        network_mode="mlops-logistics-router-project_default",
+        network_mode= DOCKER_NETWORK,
         environment={
             "MLFLOW_TRACKING_URI": "http://mlflow:5000",
             "PAYLOAD_DATA_PATH": (

@@ -67,6 +67,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: mlops-logistics-router-airflow-key
       PROJECT_PATH: ${PROJECT_PATH}
+      DOCKER_NETWORK: ${DOCKER_NETWORK}
     volumes:
       - ./pipelines/airflow/dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
@@ -83,6 +84,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: mlops-logistics-router-airflow-key
       PROJECT_PATH: ${PROJECT_PATH}
+      DOCKER_NETWORK: ${DOCKER_NETWORK}
     volumes:
       - ./pipelines/airflow/dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
@@ -184,6 +186,38 @@ services:
       CONDITIONS_URL: http://conditions-api:8000/api/v1/conditions/predict
       COST_URL: http://cost-api:8000/predict
       PAYLOAD_URL: http://telemetry-api:8000/api/v1/payload    
+
+
+  geography-trainer:
+    build:
+      context: .
+      dockerfile: docker/geography/Dockerfile.train
+    image: geography-trainer:latest
+
+  conditions-trainer:
+    build:
+      context: .
+      dockerfile: docker/conditions/Dockerfile.train
+    image: conditions-trainer:latest
+
+  cost-spark:
+    build:
+      context: .
+      dockerfile: docker/cost/Dockerfile.spark
+    image: cost-spark:latest
+
+  cost-trainer:
+    build:
+      context: .
+      dockerfile: docker/cost/Dockerfile.train
+    image: cost-trainer:latest
+
+  vehicle-pipeline:
+    build:
+      context: .
+      dockerfile: docker/vehicle/Dockerfile.pipeline
+    image: vehicle-pipeline:latest
+
 
 volumes:
   airflow-db-data:
