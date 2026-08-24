@@ -5,7 +5,9 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
 
-PROJECT_PATH = r"C:\Users\HP\mlops-logistics-router-project"
+import os
+
+PROJECT_PATH = os.environ["PROJECT_PATH"]
 
 RAW_DATA_PATH = (
     "/opt/project/data/raw/"

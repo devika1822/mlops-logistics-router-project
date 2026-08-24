@@ -1,4 +1,3 @@
-version: "3.8"
 
 services:
 
@@ -67,6 +66,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: mlops-logistics-router-airflow-key
+      PROJECT_PATH: ${PROJECT_PATH}
     volumes:
       - ./pipelines/airflow/dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
@@ -82,6 +82,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: mlops-logistics-router-airflow-key
+      PROJECT_PATH: ${PROJECT_PATH}
     volumes:
       - ./pipelines/airflow/dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
