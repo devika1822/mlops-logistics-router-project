@@ -1,24 +1,34 @@
-# Core
+# Core ML / data
 pandas
 numpy
 scikit-learn
 xgboost
+pyarrow
 
 # Pipeline orchestration
-apache-airflow
+apache-airflow==2.9.0
+apache-airflow-providers-docker
 pyspark
 
+# Streaming
+kafka-python
+
 # Experiment tracking & versioning
-mlflow
+mlflow==2.14.1
 dvc
 
-# Deployment
+# API deployment
 fastapi
 uvicorn[standard]
 pydantic
+httpx
+requests
 
 # Monitoring
 evidently
 
-# Dev/test
+# Compatibility
+setuptools<81
+
+# Dev / test
 pytest
