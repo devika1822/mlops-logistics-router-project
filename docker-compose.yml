@@ -124,8 +124,8 @@ services:
   # ---------------------------------------------------------------------------
   telemetry-api:
     build:
-      context: ./tracks/vehicle
-      dockerfile: ../../docker/vehicle/Dockerfile
+      context: .
+      dockerfile: docker/vehicle/Dockerfile
     ports:
       - "8002:8000"
     depends_on:
