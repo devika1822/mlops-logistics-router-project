@@ -1,3 +1,6 @@
+from datetime import datetime
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import pandas as pd
@@ -7,8 +10,6 @@ router = APIRouter(
     prefix="/api/v1/conditions",
     tags=["Conditions"],
 )
-
-
 
 
 FEATURES = [
@@ -27,6 +28,15 @@ LABEL_MAPPING = {
 }
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+PREDICTION_LOG_PATH = (
+    PROJECT_ROOT
+    / "monitoring"
+    / "conditions"
+    / "prediction_logs.csv"
+)
+
 
 # Loaded by api/main.py during FastAPI startup.
 model = None
@@ -41,6 +51,7 @@ def set_model(loaded_model, version):
 
     model = loaded_model
     model_version = version
+
 
 def is_model_loaded():
     """Return whether the Conditions model is currently loaded."""
@@ -65,8 +76,8 @@ class ConditionsInput(BaseModel):
 
     time_of_day: int = Field(
         ...,
-        ge=0.0,
-        le=23.0,
+        ge=0,
+        le=23,
         description="Hour of day, from 0 to 23",
     )
 
@@ -78,13 +89,10 @@ class ConditionsInput(BaseModel):
     )
 
 
-
-
 class ConditionsOutput(BaseModel):
     predicted_reliability: str
     model_name: str
     model_version: str
-
 
 
 @router.post(
@@ -103,7 +111,6 @@ def predict_conditions(data: ConditionsInput):
     try:
         # Convert request to DataFrame and enforce
         # exactly the same column order as training.
-
         input_df = pd.DataFrame(
             [data.model_dump()]
         )[FEATURES]
@@ -127,7 +134,6 @@ def predict_conditions(data: ConditionsInput):
         prediction = model.predict(
             input_df
         )
-        
 
         predicted_class = int(
             prediction[0]
@@ -142,6 +148,28 @@ def predict_conditions(data: ConditionsInput):
                 f"Unexpected prediction class: "
                 f"{predicted_class}"
             )
+
+        # ------------------------------------------------------------------
+        # Prediction logging for Evidently monitoring
+        # ------------------------------------------------------------------
+        log_record = input_df.copy()
+
+        log_record["predicted_reliability"] = label
+        log_record["prediction_timestamp"] = (
+            datetime.now().isoformat()
+        )
+
+        PREDICTION_LOG_PATH.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        log_record.to_csv(
+            PREDICTION_LOG_PATH,
+            mode="a",
+            header=not PREDICTION_LOG_PATH.exists(),
+            index=False,
+        )
 
         return ConditionsOutput(
             predicted_reliability=label,

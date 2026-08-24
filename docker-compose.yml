@@ -146,6 +146,8 @@ services:
       - mlflow
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./monitoring/cost:/opt/project/monitoring/cost
 
   # ---------------------------------------------------------------------------
   # Conditions API
@@ -160,6 +162,8 @@ services:
       - mlflow
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./monitoring/conditions:/opt/project/monitoring/conditions  
 
 volumes:
   airflow-db-data:
