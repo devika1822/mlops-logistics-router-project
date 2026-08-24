@@ -12,6 +12,7 @@ env/
 # Data (tracked via DVC instead, not raw git)
 data/raw/*.csv
 data/processed/*.csv
+!data/raw/ecommerce_logistics_route_planning_dataset.csv
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
