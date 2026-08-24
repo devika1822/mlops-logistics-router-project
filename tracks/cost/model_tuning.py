@@ -53,7 +53,7 @@ def tune_hyperparameters():
         search.fit(X_train, y_train)
         
         os.makedirs("tracks/cost", exist_ok=True)
-        with open(""tracks/cost/best_params_da25g503.json"", "w") as f:
+        with open("tracks/cost/best_params_da25g503.json", "w") as f:
             json.dump(search.best_params_, f, indent=4)
             
         print("\n Tuning Search Wave Complete!")

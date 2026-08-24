@@ -57,7 +57,7 @@ def train_final_model():
         print(f"Linear Regression -> MSE: {lr_mse:.4f} | R2: {lr_r2:.4f}")
 
     print("\n--- Evaluating Random Forest Candidate ---")
-    config_path = ""tracks/cost/best_params_da25g503.json""
+    config_path = "tracks/cost/best_params_da25g503.json"
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
             best_params = json.load(f)
