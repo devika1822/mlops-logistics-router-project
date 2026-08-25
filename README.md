@@ -1,101 +1,171 @@
 # RouteSense: MLOps-Driven Predictive Analytics for Logistics Delivery Performance
 
+### Configure Environment Variables
+
+Create a local `.env` file from the provided `.env.example` template.
+
+**Windows PowerShell:**
+
+```powershell
+Copy-Item .env.example .env
+```
+
+**Linux / macOS:**
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and configure the required values for your local environment:
+
+```env
+PROJECT_PATH=C:/path/to/mlops-logistics-router-project
+DOCKER_NETWORK=mlops-logistics-router-project_default
+```
+
+- `PROJECT_PATH` — absolute path to the cloned project on the host machine. Airflow uses this to mount the project into DockerOperator task containers.
+- `DOCKER_NETWORK` — Docker Compose network used by Airflow-launched containers to communicate with services such as MLflow.
+
+The `.env` file contains machine-specific configuration and should not be committed to Git.
+
 ## 1. Project Overview
 
-This project implements an end-to-end MLOps system for fleet logistics and route planning. The system is organized into multiple machine learning tracks that analyze different aspects of logistics operations and expose trained models through independent FastAPI services.
-
-The project integrates data preprocessing, model development, experiment tracking, model registration, API-based inference, workflow orchestration, containerization, streaming infrastructure, and model monitoring into a common repository.
-
-Dataset: [E-commerce Logistics Route Planning Dataset](https://www.kaggle.com/datasets/zara2099/e-commerce-logistics-route-planning-dataset)
-(1,000 rows, 18 columns).
-
-The major prediction tracks are:
+RouteSense is an end-to-end MLOps system for fleet logistics and route-planning analytics. The project is organized into four independent machine-learning tracks, each addressing a different aspect of logistics operations.
 
 | Track | Purpose |
 |---|---|
-| Geography | Predict optimized route/travel time using geographical and traffic-related features |
-| Vehicle / Telemetry | Analyze vehicle telemetry and predict vehicle-related operational metrics |
-| Cost | Predict optimized route cost |
-| Conditions | Predict route reliability based on weather, traffic, speed, and time-related conditions |
+| **Geography** | Predict optimized route/travel time using geographical and traffic-related features |
+| **Conditions** | Predict route reliability based on weather, traffic, speed, and time-related conditions |
+| **Cost** | Predict optimized route cost |
+| **Vehicle / Telemetry** | Analyze vehicle/payload characteristics and predict vehicle-related operational metrics |
 
-The tracks are developed independently but integrated through a shared MLOps architecture using **Apache Spark, MLflow, FastAPI, Apache Airflow, Docker Compose, and Kafka**.
+Each track maintains its own preprocessing, model-development and serving components while sharing common MLOps infrastructure.
+
+
+The project integrates:
+
+- distributed preprocessing with Apache Spark;
+- model experimentation and tuning;
+- MLflow experiment tracking and model registration;
+- workflow orchestration with Apache Airflow;
+- model serving through FastAPI;
+- multi-model integration through a unified API;
+- containerization with Docker and Docker Compose;
+- Kafka-based streaming infrastructure;
+- prediction and drift monitoring; and
+- CI validation using GitHub Actions.
+
+**Dataset:** E-commerce Logistics Route Planning Dataset — 1,000 rows and 18 columns.
 
 ---
 
 ## 2. System Architecture
 
-The project follows a modular MLOps architecture.
+The four prediction tracks operate **in parallel**. Each track performs its own preprocessing and model-development workflow before exposing its trained model through an independent API.
 
-### Processing Flow
+```text
+                                                  Raw Logistics Data
+                                |
+                                v
+                      +--------------------+
+                      | Apache Spark       |
+                      | Preprocessing      |
+                      +---------+----------+
+                                |
+                                v
+                       Processed Datasets
+                                |
+        +-----------------------+-----------------------+
+        |                       |                       |
+        v                       v                       v
+ +-------------+         +-------------+         +-------------+
+ |  Geography  |         | Conditions  |         |    Cost     |
+ |    Track    |         |    Track    |         |    Track    |
+ +------+------+         +------+------+         +------+------+
+        |                       |                       |
+        |                       |                       |
+        |                 +-----+-----------------------+
+        |                 |
+        |                 |             +-----------------+
+        |                 |             | Vehicle/Payload |
+        |                 |             |      Track      |
+        |                 |             +--------+--------+
+        |                 |                      |
+        +-----------------+----------------------+
+                          |
+                          v
+                Model Training / Tuning
+                          |
+                          v
+                +---------------------+
+                |       MLflow        |
+                | Experiment Tracking |
+                |   Model Registry    |
+                +----------+----------+
+                           |
+       +-------------------+-------------------+-------------------+
+       |                   |                   |                   |
+       v                   v                   v                   v
++---------------+   +---------------+   +---------------+   +---------------+
+| Geography API |   | Conditions API|   |    Cost API   |   | Vehicle API   |
+|    FastAPI    |   |    FastAPI    |   |    FastAPI    |   |    FastAPI    |
++-------+-------+   +-------+-------+   +-------+-------+   +-------+-------+
+        |                   |                   |                   |
+        +-------------------+-------------------+-------------------+
+                                    |
+                                    v
+                         +----------------------+
+                         |   Integration API    |
+                         | Unified REST Layer   |
+                         +----------------------+
 
-1. Raw logistics and telemetry data are ingested from the `data/raw` directory.
-2. Apache Spark performs distributed preprocessing and feature preparation.
-3. Processed datasets are stored under `data/processed`.
-4. Each track performs model experimentation, tuning, and final model training.
-5. MLflow records model parameters, metrics, artifacts, and registered model versions.
-6. FastAPI services expose trained models through REST prediction endpoints.
-7. Docker packages the individual services and their dependencies into reproducible containers.
-8. Docker Compose provides a common environment for MLflow, APIs, Airflow, Kafka, and supporting services.
-9. Apache Airflow orchestrates pipeline stages through track-specific DAGs.
-10. Monitoring components can collect prediction information and generate model monitoring reports.
+       Airflow   → Pipeline orchestration
+       Docker    → Containerized execution
+       Kafka     → Vehicle/Payload streaming ingestion
+       Evidently → Data-drift monitoring
 
-The modular design allows each machine learning track to be developed and tested independently while still operating as part of a common logistics MLOps platform.
+```
+
+> The four tracks are logically parallel. Their exact preprocessing, training and monitoring implementations differ according to the requirements of each track.
 
 ---
 
-## 3. System Architecture Diagram
+## 3. Processing Flow
+
+The general MLOps lifecycle is:
 
 ```text
-                                                 +-----------------------+
-                         |    Raw Data Sources   |
-                         +-----------+-----------+
-                                     |
-                                     v
-                         +-----------------------+
-                         |    Apache Spark       |
-                         | Data Preprocessing    |
-                         +-----------+-----------+
-                                     |
-                                     v
-                         +-----------------------+
-                         |   Processed Datasets  |
-                         +-----------+-----------+
-                                     |
-        +-------------+--------------+--------------+-------------+
-        |             |              |              |
-        v             v              v              v
-+---------------+ +---------------+ +---------------+ +---------------+
-|   Geography   | |   Vehicle /   | |     Cost      | |  Conditions   |
-|     Track     | |   Telemetry   | |     Track     | |     Track     |
-+-------+-------+ +-------+-------+ +-------+-------+ +-------+-------+
-        |                 |                 |                 |
-        +-----------------+-----------------+-----------------+
-                                  |
-                                  v
-                         +-----------------------+
-                         |        MLflow         |
-                         | Experiments / Models  |
-                         |   Model Registry      |
-                         +-----------+-----------+
-                                     |
-        +-------------+--------------+--------------+-------------+
-        |             |              |              |
-        v             v              v              v
-+---------------+ +---------------+ +---------------+ +---------------+
-| Geography API | | Vehicle API   | |   Cost API    | | Conditions API|
-|   FastAPI     | |   FastAPI     | |   FastAPI     | |   FastAPI     |
-+---------------+ +---------------+ +---------------+ +---------------+
-                                     |
-                                     v
-                         +-----------------------+
-                         |    Docker Compose     |
-                         | Integrated Execution  |
-                         +-----------------------+
-
-      Apache Airflow → Pipeline orchestration
-      Apache Kafka  → Streaming infrastructure
-      Monitoring    → Drift / prediction monitoring
+Raw / Streaming Data
+        |
+        v
+Data Validation & Preprocessing
+        |
+        v
+Feature Engineering
+        |
+        v
+Model Experimentation
+        |
+        v
+Model Comparison / Tuning
+        |
+        v
+Final Model Training
+        |
+        v
+MLflow Tracking & Model Registration
+        |
+        v
+FastAPI Model Serving
+        |
+        v
+Integrated Logistics API
+        |
+        v
+Prediction / Drift Monitoring
 ```
+
+Apache Airflow orchestrates track-specific production workflows, while Docker provides reproducible runtime environments.
 
 ---
 
@@ -103,21 +173,22 @@ The modular design allows each machine learning track to be developed and tested
 
 | Component | Technology |
 |---|---|
-| Programming Language | Python |
+| Programming Language | Python 3.12 |
 | Distributed Processing | Apache Spark / PySpark |
 | Machine Learning | Scikit-learn / track-specific ML libraries |
+| Data Processing | Pandas / NumPy |
 | Experiment Tracking | MLflow |
 | Model Registry | MLflow Model Registry |
-| API Layer | FastAPI |
+| API Framework | FastAPI |
 | API Server | Uvicorn |
 | Workflow Orchestration | Apache Airflow |
-| Streaming | Apache Kafka |
+| Streaming | Apache Kafka / ZooKeeper |
 | Containerization | Docker |
 | Multi-service Execution | Docker Compose |
+| Monitoring | Evidently / track-specific monitoring |
 | Data Versioning | DVC |
-| Data Processing | Pandas / NumPy |
-| Model Monitoring | Track-specific monitoring scripts |
 | Version Control | Git / GitHub |
+| Continuous Integration | GitHub Actions |
 
 ---
 
@@ -126,7 +197,12 @@ The modular design allows each machine learning track to be developed and tested
 ```text
 mlops-logistics-router-project/
 │
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+│
 ├── api/
+│   ├── integration.py
 │   ├── main.py
 │   └── routers/
 │       ├── geography.py
@@ -140,53 +216,40 @@ mlops-logistics-router-project/
 │
 ├── docker/
 │   ├── geography/
-│   │   └── Dockerfile
-│   ├── vehicle/
-│   │   └── Dockerfile
+│   ├── conditions/
 │   ├── cost/
-│   │   └── Dockerfile
-│   └── conditions/
-│       └── Dockerfile
+│   ├── vehicle/
+│   └── integration/
 │
 ├── models/
 │   └── mlflow/
-│       ├── mlflow.db
-│       └── artifacts/
 │
 ├── monitoring/
-│   └── geography/
 │
 ├── pipelines/
 │   ├── airflow/
 │   │   └── dags/
-│   │       ├── geography/
-│   │       ├── cost/
-│   │       ├── vehicle/
-│   │       └── conditions/
-│   │
 │   └── spark/
-│       ├── geography/
-│       ├── cost/
-│       ├── payload_cleaning/
-│       └── conditions/
 │
 ├── tracks/
 │   ├── geography/
-│   ├── vehicle/
+│   ├── conditions/
 │   ├── cost/
-│   └── conditions/
+│   └── vehicle/
 │
 ├── reports/
 ├── docs/
 ├── .dvc/
 ├── .dockerignore
+├── .dvcignore
+├── .env.example
 ├── .gitignore
 ├── docker-compose.yml
 ├── requirements.txt
 └── README.md
 ```
 
-The exact contents of individual track directories may vary because each track implements its own preprocessing, training, tuning, inference, and monitoring requirements.
+Each track maintains its own implementation according to its preprocessing, experimentation, tuning, training, inference and monitoring requirements.
 
 ---
 
@@ -194,40 +257,39 @@ The exact contents of individual track directories may vary because each track i
 
 ### Prerequisites
 
-The following software should be installed before running the project:
+Install the following before running the project:
 
-- Python 3.12 or compatible Python version
+- Python 3.12
 - Git
 - Docker Desktop
 - Docker Compose
-- Java JDK for Apache Spark
-- Apache Spark / PySpark dependencies
+- Java JDK
 - DVC
 
 ### Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone -b integration/final https://github.com/devika1822/mlops-logistics-router-project.git
 cd mlops-logistics-router-project
 ```
 
-### Create a Python Virtual Environment
+### Create a Virtual Environment
 
-Windows PowerShell:
+#### Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-Linux/macOS:
+#### Linux / macOS
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 ```
 
-### Install Python Dependencies
+### Install Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -235,7 +297,7 @@ pip install -r requirements.txt
 
 ### Retrieve Versioned Data
 
-Where the raw dataset is managed using DVC:
+Where required, retrieve DVC-managed data using:
 
 ```bash
 dvc pull
@@ -243,186 +305,20 @@ dvc pull
 
 ---
 
-## 7. Running the MLOps Pipeline
+## 7. Running the Complete Environment
 
-The recommended execution order is:
+The complete multi-service environment is defined in `docker-compose.yml`.
 
-```text
-Raw Data
-   ↓
-Spark Preprocessing
-   ↓
-Processed Data
-   ↓
-Model Experimentation
-   ↓
-Hyperparameter Tuning
-   ↓
-Final Model Training
-   ↓
-MLflow Logging / Model Registration
-   ↓
-FastAPI Model Serving
-   ↓
-Dockerized Services
-   ↓
-Monitoring
-```
-
-### Step 1 – Run Spark Preprocessing
-
-Run the Spark preprocessing script corresponding to the required track.
-
-Example for Geography:
-
-```bash
-python pipelines/spark/geography/spark_preprocessing.py
-```
-
-The preprocessing stage generates the processed data required by downstream model training and inference components.
-
-Other tracks should execute their corresponding preprocessing scripts under:
-
-```text
-pipelines/spark/<track>/
-```
-
-### Step 2 – Run Model Training
-
-Each track contains its own model development scripts under:
-
-```text
-tracks/<track>/
-```
-
-Depending on the track, these may include:
-
-```text
-model_experiment.py
-model_tuning.py
-train.py
-train_final.py
-```
-
-The general model development sequence is:
-
-```text
-Model Experimentation
-        ↓
-Model Selection
-        ↓
-Hyperparameter Tuning
-        ↓
-Final Training
-        ↓
-MLflow Registration
-```
-
-### Step 3 – Start MLflow
-
-MLflow can be started through Docker Compose:
-
-```bash
-docker compose up -d mlflow
-```
-
-The MLflow UI is available at:
-
-```text
-http://localhost:5000
-```
-
-MLflow is used for:
-
-- experiment tracking
-- parameter logging
-- metric logging
-- artifact storage
-- model versioning
-- model registration
-
-### Step 4 – Run FastAPI Services
-
-Once the required models have been trained and registered, the APIs can be started using Docker Compose.
-
----
-
-## 8. API Usage
-
-The integrated system exposes separate APIs for the machine learning tracks.
-
-| Service | Host Port | Purpose |
-|---|---:|---|
-| Geography API | 8001 | Geography / route-time prediction |
-| Vehicle / Telemetry API | 8002 | Vehicle telemetry prediction |
-| Cost API | 8003 | Route-cost prediction |
-| Conditions API | 8004 | Route-reliability prediction |
-
-FastAPI automatically provides interactive Swagger documentation.
-
-Examples:
-
-```text
-http://localhost:8001/docs
-http://localhost:8002/docs
-http://localhost:8003/docs
-http://localhost:8004/docs
-```
-
-Prediction requests are submitted as JSON to the prediction endpoint exposed by the respective service.
-
-Example request structure:
-
-```json
-{
-  "feature_1": 10.5,
-  "feature_2": 0.4,
-  "feature_3": 25
-}
-```
-
-The exact input features and validation constraints depend on the selected prediction track and can be viewed through its `/docs` endpoint.
-
-Example response structure:
-
-```json
-{
-  "status": "success",
-  "prediction": 42.5
-}
-```
-
----
-
-## 9. Docker Execution
-
-Docker is used to provide reproducible execution environments for the project services.
-
-### Validate Docker Compose Configuration
+### Validate Docker Compose
 
 ```bash
 docker compose config
 ```
 
-### Build Individual APIs
+### Start the Complete Stack
 
 ```bash
-docker compose build geography-api
-docker compose build telemetry-api
-docker compose build cost-api
-docker compose build conditions-api
-```
-
-### Build Multiple APIs
-
-```bash
-docker compose build geography-api telemetry-api cost-api conditions-api
-```
-
-### Start MLflow and APIs
-
-```bash
-docker compose up -d mlflow geography-api telemetry-api cost-api conditions-api
+docker compose up -d
 ```
 
 ### Check Running Containers
@@ -431,13 +327,673 @@ docker compose up -d mlflow geography-api telemetry-api cost-api conditions-api
 docker compose ps
 ```
 
-### View Service Logs
+### Rebuild After Code Changes
+
+```bash
+docker compose up -d --build
+```
+
+### Stop the Environment
+
+```bash
+docker compose down
+```
+
+The Compose environment includes:
+
+- ZooKeeper
+- Kafka
+- Airflow PostgreSQL database
+- Airflow initialization service
+- Airflow webserver
+- Airflow scheduler
+- MLflow
+- Geography API
+- Conditions API
+- Cost API
+- Vehicle / Telemetry API
+- Integration API
+- track-specific training and pipeline images
+
+---
+
+## 8. Service Endpoints
+
+After successful startup:
+
+| Service | Endpoint |
+|---|---|
+| **Integration API** | `http://localhost:8000/docs` |
+| **Geography API** | `http://localhost:8001/docs` |
+| **Vehicle / Telemetry API** | `http://localhost:8002/docs` |
+| **Cost API** | `http://localhost:8003/docs` |
+| **Conditions API** | `http://localhost:8004/docs` |
+| **MLflow UI** | `http://localhost:5000` |
+| **Airflow UI** | `http://localhost:8080` |
+
+FastAPI automatically exposes interactive Swagger documentation through the `/docs` endpoint.
+
+> Processed datasets and required registered models must be available for model-serving APIs that depend on them.
+
+---
+
+## 9. Geography Track
+
+### Objective
+
+The Geography track predicts:
+
+```text
+optimized_route_time_min
+```
+
+using geographical, delivery and traffic-related information.
+
+The original candidate features included:
+
+```text
+order_latitude
+order_longitude
+distance_km
+delivery_time_window_hrs
+order_priority
+traffic_density_index
+average_speed_kmph
+```
+
+### Leakage Analysis
+
+Exploratory analysis identified `average_speed_kmph` as a potential target-leakage source.
+
+A domain-derived route-time relationship combining:
+
+```text
+distance_km
+average_speed_kmph
+traffic_density_index
+```
+
+was found to have an almost perfect correlation with the target.
+
+When average speed was retained, model performance became extremely high. Random Forest, for example, achieved an R² of approximately **0.98**.
+
+To avoid an unrealistically optimistic model that could effectively reconstruct route time, `average_speed_kmph` was excluded from the final Geography feature set.
+
+The final base features are:
+
+```text
+order_latitude
+order_longitude
+distance_km
+delivery_time_window_hrs
+order_priority
+traffic_density_index
+```
+
+---
+
+## 10. Geography Spark Preprocessing
+
+Geography preprocessing is implemented using PySpark.
+
+```bash
+python pipelines/spark/geography/spark_preprocessing.py
+```
+
+The preprocessing stage performs:
+
+- required-column validation;
+- missing-value checks;
+- removal of rows containing nulls in required fields;
+- duplicate handling;
+- latitude and longitude range validation;
+- positive distance validation;
+- positive delivery-window validation;
+- traffic-density validation;
+- order-priority validation;
+- positive target validation;
+- IQR-based outlier detection; and
+- feature engineering.
+
+Statistical outliers are **flagged instead of automatically deleted**, since unusual long-distance or long-duration deliveries may still be valid logistics observations.
+
+### Engineered Features
+
+#### Distance-Traffic Interaction
+
+```text
+distance_traffic_interaction
+    = distance_km × traffic_density_index
+```
+
+This represents the interaction between route length and traffic conditions.
+
+#### Distance per Delivery Window
+
+```text
+distance_per_delivery_window
+    = distance_km / delivery_time_window_hrs
+```
+
+This represents distance pressure relative to the promised delivery window.
+
+#### Distance Outlier Flag
+
+An IQR-based binary feature identifies unusually short or long delivery distances while retaining those records.
+
+Processed Geography data is stored under:
+
+```text
+data/processed/geography/
+```
+
+---
+
+## 11. Geography Model Development
+
+The Geography track evaluates two regression algorithms:
+
+- Linear Regression
+- Random Forest Regressor
+
+Both base and engineered feature sets are evaluated during experimentation.
+
+After removing the leakage-prone average-speed feature, the initial comparison produced approximately:
+
+| Model | MAE | RMSE | R² |
+|---|---:|---:|---:|
+| Linear Regression | 34.72 | 51.55 | 0.460 |
+| Random Forest | 34.73 | 51.42 | 0.463 |
+
+Random Forest is subsequently subjected to hyperparameter tuning, while both model candidates are evaluated using **5-fold cross-validation**.
+
+The tuning process evaluates Random Forest parameters including:
+
+```text
+n_estimators
+max_depth
+min_samples_split
+min_samples_leaf
+```
+
+The final production model selected for the Geography track is:
+
+```text
+Linear Regression + StandardScaler
+```
+
+The selected model is validated using 5-fold cross-validation and then fitted using the complete processed Geography dataset.
+
+---
+
+## 12. MLflow Experiment Tracking and Model Registry
+
+MLflow provides centralized experiment tracking and model management.
+
+Start MLflow independently using:
+
+```bash
+docker compose up -d mlflow
+```
+
+The UI is available at:
+
+```text
+http://localhost:5000
+```
+
+MLflow tracks information such as:
+
+- model type;
+- feature set;
+- hyperparameters;
+- evaluation metrics;
+- cross-validation results;
+- model artifacts; and
+- registered model versions.
+
+The final Geography model is registered as:
+
+```text
+geography_route_time_model
+```
+
+The Geography FastAPI service loads this registered model from MLflow for inference.
+
+MLflow metadata and artifacts are persisted through:
+
+```text
+./models/mlflow:/mlflow
+```
+
+The MLflow service uses port `5000` both inside the Docker network and on the host.
+
+---
+
+## 13. Airflow Orchestration
+
+Apache Airflow orchestrates track-specific production workflows.
+
+The Airflow environment consists of:
+
+- PostgreSQL metadata database;
+- initialization service;
+- Airflow webserver; and
+- Airflow scheduler.
+
+Start Airflow using:
+
+```bash
+docker compose up -d airflow-db airflow-init airflow-webserver airflow-scheduler
+```
+
+Airflow UI:
+
+```text
+http://localhost:8080
+```
+
+Track-specific DAGs are maintained under:
+
+```text
+pipelines/airflow/dags/
+```
+
+### Geography Pipeline
+
+The Geography production workflow is:
+
+```text
+Spark Preprocessing
+        |
+        v
+Final Model Training
+        |
+        v
+MLflow Logging / Registration
+```
+
+The preprocessing stage is executed in a Spark container.
+
+The final Geography training stage uses:
+
+```text
+geography-trainer:latest
+```
+
+Airflow uses `DockerOperator` to execute pipeline tasks in isolated containers.
+
+---
+
+## 14. Geography Model Serving
+
+The Geography model is exposed through a FastAPI service.
+
+The prediction request accepts six base inputs:
+
+```text
+order_latitude
+order_longitude
+distance_km
+delivery_time_window_hrs
+order_priority
+traffic_density_index
+```
+
+Pydantic validates the request types.
+
+The API recreates the engineered features required by the trained model:
+
+```text
+distance_traffic_interaction
+distance_per_delivery_window
+distance_outlier_flag
+```
+
+The registered model is loaded from MLflow and used to generate the final prediction.
+
+Example response:
+
+```json
+{
+  "predicted_route_time_min": 123.45
+}
+```
+
+The API also logs prediction inputs, the predicted route time and a timestamp for downstream monitoring.
+
+---
+
+## 15. Integrated Logistics Router API
+
+The Integration API provides a single entry point for all four prediction tracks.
+
+Swagger UI:
+
+```text
+http://localhost:8000/docs
+```
+
+Main endpoint:
+
+```text
+POST /route-analysis
+```
+
+The integrated API:
+
+1. receives one combined logistics request;
+2. validates it using Pydantic;
+3. creates a Geography-specific payload;
+4. creates a Conditions-specific payload;
+5. creates a Cost-specific payload;
+6. creates a Vehicle/Payload-specific payload;
+7. sends each payload to the corresponding FastAPI service;
+8. checks the downstream responses; and
+9. combines the four successful predictions into one JSON response.
+
+Inside Docker, the Integration API communicates with the individual services using Docker service names:
+
+```text
+http://geography-api:8000/predict
+http://conditions-api:8000/api/v1/conditions/predict
+http://cost-api:8000/predict
+http://telemetry-api:8000/api/v1/payload
+```
+
+The Integration API therefore acts as an aggregation layer rather than containing another ML model.
+
+---
+
+## 16. Docker Architecture
+
+Docker provides isolated and reproducible environments for the different components of the system.
+
+### Geography Serving Image
+
+The Geography serving image is built using:
+
+```text
+docker/geography/Dockerfile
+```
+
+It provides the dependencies required to load the MLflow model and serve predictions through FastAPI and Uvicorn.
+
+### Geography Training Image
+
+The training environment is defined separately using:
+
+```text
+docker/geography/Dockerfile.train
+```
+
+and is built as:
+
+```text
+geography-trainer:latest
+```
+
+This separates model-training requirements from inference requirements.
+
+### Integration Image
+
+The Integration API is built from:
+
+```text
+docker/integration/Dockerfile
+```
+
+Its runtime includes FastAPI, Uvicorn, HTTPX and Pydantic.
+
+HTTPX is used to communicate with the four downstream APIs.
+
+### Additional Pipeline Images
+
+Docker Compose also defines dedicated images including:
+
+```text
+conditions-trainer:latest
+cost-spark:latest
+cost-trainer:latest
+vehicle-pipeline:latest
+```
+
+These provide isolated runtime environments for track-specific pipeline operations.
+
+---
+
+## 17. Docker Volumes
+
+Docker volumes and bind mounts provide persistent storage and host-container file sharing.
+
+### MLflow
+
+```text
+./models/mlflow:/mlflow
+```
+
+This persists the MLflow database and artifacts outside the container.
+
+### Geography Monitoring
+
+```text
+./monitoring/geography:/opt/project/monitoring/geography
+```
+
+This makes prediction logs generated by the Geography API container available to monitoring scripts on the host.
+
+### Airflow Database
+
+Airflow PostgreSQL data is persisted using the named volume:
+
+```text
+airflow-db-data
+```
+
+This prevents metadata from being lost simply because the database container is recreated.
+
+---
+
+## 18. Kafka Streaming
+
+Apache Kafka and ZooKeeper provide the streaming infrastructure for the project.
+
+Start the streaming services using:
+
+```bash
+docker compose up -d zookeeper kafka
+```
+
+The Compose configuration exposes Kafka for both internal Docker communication and host-based clients.
+
+Kafka is available internally through:
+
+```text
+kafka:9092
+```
+
+and host clients can use the configured host listener.
+
+The streaming infrastructure supports continuously arriving logistics and telemetry data, particularly for the Vehicle / Payload workflow.
+
+---
+
+## 19. Monitoring and Data Drift
+
+Monitoring components are maintained under:
+
+```text
+monitoring/
+```
+
+Track-specific monitoring implementations collect inference information and generate monitoring reports.
+
+### Geography Monitoring
+
+Every Geography prediction request records:
+
+- model input features;
+- predicted route time; and
+- prediction timestamp.
+
+Prediction logs are written to:
+
+```text
+monitoring/geography/prediction_logs.csv
+```
+
+### Generate Test Traffic
+
+For monitoring demonstrations:
+
+```bash
+python monitoring/geography/generate_test_traffic.py
+```
+
+This sends test prediction requests to the running Geography API.
+
+### Generate Geography Drift Report
+
+```bash
+python monitoring/geography/monitor.py
+```
+
+The monitoring process compares:
+
+```text
+Reference data:
+data/processed/geography/
+```
+
+with:
+
+```text
+Current inference data:
+monitoring/geography/prediction_logs.csv
+```
+
+Evidently's `DataDriftPreset` is used to compare feature distributions and generate an HTML monitoring report.
+
+The report is written to:
+
+```text
+monitoring/geography/reports/data_drift_report.html
+```
+
+On Windows PowerShell:
+
+```powershell
+Start-Process monitoring\geography\reports\data_drift_report.html
+```
+
+Detected data drift indicates that the distribution of current model inputs differs statistically from the training/reference distribution. Drift does not automatically mean that the model has failed, but it provides a signal for further investigation and possible retraining.
+
+---
+
+## 20. Continuous Integration
+
+The project contains a GitHub Actions workflow at:
+
+```text
+.github/workflows/ci.yml
+```
+
+The **RouteSense CI Pipeline** runs on:
+
+- pushes to `main`;
+- pushes to `integration/final`; and
+- pull requests targeting `main`.
+
+The CI job runs on Ubuntu and uses Python 3.12.
+
+The workflow performs:
+
+### Python Syntax Validation
+
+```bash
+python -m compileall tracks pipelines api monitoring
+```
+
+This validates Python source files across the major implementation directories.
+
+### Docker Compose Validation
+
+```bash
+docker compose config
+```
+
+This verifies the Compose configuration.
+
+### Docker Image Build Validation
+
+The CI pipeline builds:
+
+```text
+Geography API
+Conditions API
+Cost API
+Payload API
+Integration API
+```
+
+This verifies that all five API Docker images can be successfully constructed from the repository.
+
+---
+
+## 21. Useful Commands
+
+### Start Complete Stack
+
+```bash
+docker compose up -d
+```
+
+### Start and Rebuild
+
+```bash
+docker compose up -d --build
+```
+
+### Check Services
+
+```bash
+docker compose ps
+```
+
+### Validate Compose
+
+```bash
+docker compose config
+```
+
+### View Geography API Logs
 
 ```bash
 docker compose logs geography-api
-docker compose logs telemetry-api
-docker compose logs cost-api
-docker compose logs conditions-api
+```
+
+### Follow Geography Logs
+
+```bash
+docker compose logs -f geography-api
+```
+
+### View Integration API Logs
+
+```bash
+docker compose logs integration-api
+```
+
+### Start Only MLflow
+
+```bash
+docker compose up -d mlflow
+```
+
+### Start Kafka
+
+```bash
+docker compose up -d zookeeper kafka
 ```
 
 ### Stop Services
@@ -446,174 +1002,76 @@ docker compose logs conditions-api
 docker compose down
 ```
 
-### Rebuild a Service After Code Changes
+---
 
-```bash
-docker compose build --no-cache geography-api
-docker compose up -d --force-recreate geography-api
+## 22. End-to-End MLOps Lifecycle
+
+RouteSense demonstrates the following end-to-end lifecycle:
+
+```text
+                Raw / Streaming Data
+                         |
+                         v
+              Distributed Processing
+                    with Spark
+                         |
+                         v
+                Feature Engineering
+                         |
+                         v
+               Model Experimentation
+                         |
+                         v
+              Model Tuning / Selection
+                         |
+                         v
+               Cross-Validation
+                         |
+                         v
+               Final Model Training
+                         |
+                         v
+                MLflow Tracking
+                         |
+                         v
+             MLflow Model Registry
+                         |
+                         v
+              Dockerized FastAPI
+                  Model Services
+                         |
+          +--------------+--------------+--------------+
+          |              |              |              |
+          v              v              v              v
+      Geography      Conditions        Cost      Vehicle/Payload
+          \              |              /            /
+           \             |             /            /  
+            +------ -------------------------------+
+                         |
+                         v
+                 Integration API
+                         |
+                         v
+              Prediction Monitoring
+                  & Drift Analysis
 ```
+
+The four modelling tracks remain independently maintainable while sharing common infrastructure for orchestration, model management, containerization, serving, integration and monitoring.
 
 ---
 
-## 10. Airflow Orchestration
+## 23. Key Design Principles
 
-Apache Airflow is used to orchestrate pipeline tasks and track dependencies between stages.
+RouteSense follows several core MLOps principles:
 
-Track-specific DAGs are maintained under:
-
-```text
-pipelines/airflow/dags/
-```
-
-The Airflow environment includes:
-
-- PostgreSQL metadata database
-- Airflow webserver
-- Airflow scheduler
-
-Start the Airflow services using:
-
-```bash
-docker compose up -d airflow-db airflow-init airflow-webserver airflow-scheduler
-```
-
-The Airflow UI is available at:
-
-```text
-http://localhost:8080
-```
-
-The DAGs coordinate pipeline stages such as preprocessing, training, validation, and other track-specific workflow operations.
-
----
-
-## 11. Kafka Streaming
-
-Apache Kafka is included as the streaming component of the MLOps architecture and can be used to simulate or process continuously arriving logistics and telemetry events.
-
-Start Kafka and ZooKeeper using:
-
-```bash
-docker compose up -d zookeeper kafka
-```
-
-The Docker Compose environment exposes Kafka for communication between streaming producers, consumers, and downstream pipeline components.
-
----
-
-## 12. MLflow Model Management
-
-MLflow provides centralized experiment tracking and model management across the different project tracks.
-
-The shared MLflow service is configured through `docker-compose.yml`.
-
-Model artifacts and metadata are maintained under:
-
-```text
-models/mlflow/
-```
-
-Typical tracked information includes:
-
-- model type
-- hyperparameters
-- evaluation metrics
-- training runs
-- model artifacts
-- model versions
-- registered production candidates
-
-This enables the API layer to load registered models instead of relying only on manually stored model files.
-
----
-
-## 13. Monitoring
-
-Monitoring components are maintained under:
-
-```text
-monitoring/
-```
-
-Monitoring scripts can be used to:
-
-- generate test prediction traffic
-- capture inference information
-- analyze prediction distributions
-- produce monitoring reports
-- identify potential changes in model behavior or input data
-
-Monitoring is maintained independently for tracks where monitoring functionality has been implemented.
-
----
-
-## 14. Dependencies
-
-The major Python dependencies include:
-
-```text
-fastapi
-uvicorn
-mlflow
-pandas
-numpy
-scikit-learn
-pyspark
-pyarrow
-apache-airflow
-```
-
-Additional dependencies may be required by individual tracks, for example XGBoost or monitoring libraries.
-
-For the complete dependency specification, refer to:
-
-```text
-requirements.txt
-```
-
-Docker images additionally provide isolated runtime dependencies for individual services.
-
----
-
-## 15. Integrated Execution
-
-After preprocessing and model training have been completed for all required tracks, the integrated environment can be started using Docker Compose.
-
-```bash
-docker compose up -d
-```
-
-The expected integrated environment consists of:
-
-```text
-Apache Spark        → distributed preprocessing
-Apache Airflow      → workflow orchestration
-MLflow              → experiment tracking and model registry
-FastAPI             → prediction services
-Docker              → service containerization
-Docker Compose      → multi-service integration
-Apache Kafka        → streaming infrastructure
-Monitoring          → model/prediction monitoring
-```
-
-The final system therefore demonstrates the complete MLOps lifecycle from raw data processing and model development through model registration, deployment, orchestration, and monitoring.
-
----
-
-## 16. Service Endpoints
-
-After successful deployment, the primary local interfaces are:
-
-| Component | URL |
-|---|---|
-| MLflow UI | `http://localhost:5000` |
-| Airflow UI | `http://localhost:8080` |
-| Geography API Docs | `http://localhost:8001/docs` |
-| Vehicle / Telemetry API Docs | `http://localhost:8002/docs` |
-| Cost API Docs | `http://localhost:8003/docs` |
-| Conditions API Docs | `http://localhost:8004/docs` |
-
-> **Note:** Processed datasets and registered MLflow models must be available before model-serving APIs that depend on them can start successfully.
-- **Row key:** dataframe index → `order_id`
-- **API response schema:** `{"order_id": int, "track": str, "prediction": str, "confidence": float}`
-- **Docker base image:** `python:3.11-slim`
+- **Modularity** — Geography, Conditions, Cost and Vehicle/Telemetry are implemented as independent tracks.
+- **Reproducibility** — Docker provides consistent runtime environments.
+- **Distributed processing** — Spark is used for scalable preprocessing and feature preparation.
+- **Workflow orchestration** — Airflow manages pipeline execution and task dependencies.
+- **Experiment traceability** — MLflow records parameters, metrics and artifacts.
+- **Model versioning** — registered models can be loaded by serving applications.
+- **Service separation** — individual models are exposed through independent FastAPI services.
+- **API integration** — a dedicated Integration API aggregates all four model outputs.
+- **Monitoring** — inference information can be compared with reference data to detect distribution changes.
+- **Leakage prevention** — potentially target-reconstructing features are identified and excluded where required.
+- **Continuous integration** — GitHub Actions validates Python syntax, Docker Compose configuration and API image builds.
