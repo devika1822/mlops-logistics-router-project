@@ -1,5 +1,9 @@
 # RouteSense: MLOps-Driven Predictive Analytics for Logistics Delivery Performance
 
+### Project Report
+
+[📄 View Final Project Report](doc/MLOPS_RouteSense_Report.pdf)
+
 ### Configure Environment Variables
 
 Create a local `.env` file from the provided `.env.example` template.
