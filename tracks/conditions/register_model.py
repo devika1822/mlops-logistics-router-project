@@ -3,20 +3,16 @@ import os
 
 import mlflow
 import mlflow.xgboost
+import numpy as np
 import pandas as pd
 
 from mlflow.models import infer_signature
-
 from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
 )
-
-from xgboost import XGBClassifier
+from xgboost import XGBRegressor
 
 
 
@@ -27,19 +23,7 @@ FEATURES = [
     "traffic_density_index",
 ]
 
-TARGET = "reliability_class"
-
-LABEL_MAPPING = {
-    "Low": 0,
-    "Medium": 1,
-    "High": 2,
-}
-
-LABEL_NAMES = [
-    "Low",
-    "Medium",
-    "High",
-]
+TARGET = "route_reliability_index"
 
 RANDOM_SEED = 42
 
@@ -50,33 +34,41 @@ MLFLOW_TRACKING_URI = os.getenv(
     "http://127.0.0.1:5002",
 )
 
-MLFLOW_EXPERIMENT = (
-    "conditions_route_reliability_final"
+MLFLOW_EXPERIMENT = os.getenv(
+    "MLFLOW_EXPERIMENT",
+    "conditions_route_reliability_final",
 )
+
+MODEL_ALIAS = "champion"
+
 
 
 
 FINAL_MODEL_PARAMS = {
-    "n_estimators": 150,
-    "max_depth": 4,
-    "learning_rate": 0.15,
+    "n_estimators": 75,
+    "max_depth": 6,
+    "learning_rate": 0.1,
     "subsample": 0.6,
-    "colsample_bytree": 0.9,
-    "min_child_weight": 1,
+    "colsample_bytree": 1.0,
+    "min_child_weight": 5,
     "gamma": 0.0,
     "reg_alpha": 0.0,
     "reg_lambda": 1.0,
 }
 
 
-EXPECTED_MIN_F1 = 0.95
-EXPECTED_REFERENCE_F1 = 0.9629
+
+
+EXPECTED_MAX_MAE = 0.0100
+
+REFERENCE_TEST_MAE = 0.00454
+REFERENCE_TEST_RMSE = 0.00592
+REFERENCE_TEST_R2 = 0.99827
 
 
 
 
 def load_data(train_path, test_path):
-
 
     train_df = pd.read_parquet(
         train_path
@@ -89,8 +81,35 @@ def load_data(train_path, test_path):
     return train_df, test_df
 
 
+
+
 def prepare_data(train_df, test_df):
 
+    required_columns = FEATURES + [TARGET]
+
+    missing_train = [
+        column
+        for column in required_columns
+        if column not in train_df.columns
+    ]
+
+    missing_test = [
+        column
+        for column in required_columns
+        if column not in test_df.columns
+    ]
+
+    if missing_train:
+        raise ValueError(
+            "Missing required columns in training data: "
+            f"{missing_train}"
+        )
+
+    if missing_test:
+        raise ValueError(
+            "Missing required columns in test data: "
+            f"{missing_test}"
+        )
 
     X_train = (
         train_df[FEATURES]
@@ -104,24 +123,28 @@ def prepare_data(train_df, test_df):
         .astype("float64")
     )
 
-    y_train = train_df[TARGET].map(
-        LABEL_MAPPING
+    y_train = (
+        train_df[TARGET]
+        .copy()
+        .astype("float64")
     )
 
-    y_test = test_df[TARGET].map(
-        LABEL_MAPPING
+    y_test = (
+        test_df[TARGET]
+        .copy()
+        .astype("float64")
     )
 
     if y_train.isna().any():
         raise ValueError(
-            "Unknown or missing target class "
-            "in training data."
+            f"Missing values found in "
+            f"training target '{TARGET}'."
         )
 
     if y_test.isna().any():
         raise ValueError(
-            "Unknown or missing target class "
-            "in test data."
+            f"Missing values found in "
+            f"test target '{TARGET}'."
         )
 
     return (
@@ -133,18 +156,16 @@ def prepare_data(train_df, test_df):
 
 
 
-
 def create_final_model():
-    """Create the selected final XGBoost model."""
 
-    return XGBClassifier(
+    return XGBRegressor(
         **FINAL_MODEL_PARAMS,
-        objective="multi:softmax",
-        num_class=3,
-        eval_metric="mlogloss",
+        objective="reg:squarederror",
+        eval_metric="rmse",
         random_state=RANDOM_SEED,
         n_jobs=-1,
     )
+
 
 
 
@@ -153,57 +174,32 @@ def evaluate_model(
     X_test,
     y_test,
 ):
-    """Evaluate the final model."""
 
     predictions = model.predict(
         X_test
     )
 
-    accuracy = accuracy_score(
+    mae = mean_absolute_error(
         y_test,
         predictions,
     )
 
-    precision = precision_score(
-        y_test,
-        predictions,
-        average="macro",
-        zero_division=0,
+    rmse = np.sqrt(
+        mean_squared_error(
+            y_test,
+            predictions,
+        )
     )
 
-    recall = recall_score(
-        y_test,
-        predictions,
-        average="macro",
-        zero_division=0,
-    )
-
-    macro_f1 = f1_score(
-        y_test,
-        predictions,
-        average="macro",
-        zero_division=0,
-    )
-
-    report = classification_report(
-        y_test,
-        predictions,
-        target_names=LABEL_NAMES,
-        zero_division=0,
-    )
-
-    matrix = confusion_matrix(
+    r2 = r2_score(
         y_test,
         predictions,
     )
 
     return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "macro_f1": macro_f1,
-        "report": report,
-        "matrix": matrix,
+        "mae": float(mae),
+        "rmse": float(rmse),
+        "r2": float(r2),
     }
 
 
@@ -211,7 +207,8 @@ def evaluate_model(
 
 def save_artifacts(
     model,
-    metrics,
+    X_test,
+    y_test,
     output_dir,
 ):
 
@@ -220,40 +217,35 @@ def save_artifacts(
         exist_ok=True,
     )
 
-
-
-    report_path = os.path.join(
-        output_dir,
-        "classification_report.txt",
+    predictions = model.predict(
+        X_test
     )
 
-    with open(
-        report_path,
-        "w",
-    ) as file:
-        file.write(
-            metrics["report"]
-        )
 
 
-
-    confusion_path = os.path.join(
-        output_dir,
-        "confusion_matrix.txt",
+    prediction_df = pd.DataFrame(
+        {
+            "actual_route_reliability_index":
+                y_test.values,
+            "predicted_route_reliability_index":
+                predictions,
+            "absolute_error":
+                np.abs(
+                    y_test.values
+                    - predictions
+                ),
+        }
     )
 
-    with open(
-        confusion_path,
-        "w",
-    ) as file:
+    predictions_path = os.path.join(
+        output_dir,
+        "predictions.csv",
+    )
 
-        file.write(
-            "Labels: Low, Medium, High\n\n"
-        )
-
-        file.write(
-            str(metrics["matrix"])
-        )
+    prediction_df.to_csv(
+        predictions_path,
+        index=False,
+    )
 
 
 
@@ -280,12 +272,10 @@ def save_artifacts(
     )
 
     return {
-        "report": report_path,
-        "confusion": confusion_path,
-        "feature_importance": (
-            feature_importance_path
-        ),
+        "predictions": predictions_path,
+        "feature_importance": feature_importance_path,
     }
+
 
 
 
@@ -294,7 +284,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             "Train and register the final "
-            "Conditions XGBoost model"
+            "Conditions XGBoost regression model"
         )
     )
 
@@ -311,7 +301,6 @@ def main():
     )
 
     args = parser.parse_args()
-
 
 
     mlflow.set_tracking_uri(
@@ -333,6 +322,7 @@ def main():
     )
 
 
+
     print(
         "\nLoading processed datasets..."
     )
@@ -341,6 +331,7 @@ def main():
         args.train,
         args.test,
     )
+
 
     (
         X_train,
@@ -352,13 +343,8 @@ def main():
         test_df,
     )
 
-    train_rows = len(
-        X_train
-    )
-
-    test_rows = len(
-        X_test
-    )
+    train_rows = len(X_train)
+    test_rows = len(X_test)
 
     print(
         f"Training rows: {train_rows}"
@@ -383,8 +369,6 @@ def main():
 
 
 
-    model = create_final_model()
-
     print(
         "\nFinal XGBoost parameters:"
     )
@@ -398,6 +382,8 @@ def main():
 
 
 
+    model = create_final_model()
+
     print(
         "\nTraining final model..."
     )
@@ -407,7 +393,6 @@ def main():
         y_train,
         verbose=False,
     )
-
 
 
     metrics = evaluate_model(
@@ -421,47 +406,43 @@ def main():
     )
 
     print(
-        f"Accuracy       : "
-        f"{metrics['accuracy']:.4f}"
+        f"MAE  : {metrics['mae']:.4f}"
     )
 
     print(
-        f"Macro Precision: "
-        f"{metrics['precision']:.4f}"
+        f"RMSE : {metrics['rmse']:.4f}"
     )
 
     print(
-        f"Macro Recall   : "
-        f"{metrics['recall']:.4f}"
-    )
-
-    print(
-        f"Macro F1       : "
-        f"{metrics['macro_f1']:.4f}"
+        f"R²   : {metrics['r2']:.4f}"
     )
 
 
 
     print(
-        f"\nExpected minimum Macro F1: "
-        f"{EXPECTED_MIN_F1:.4f}"
+        f"\nExpected maximum MAE: "
+        f"{EXPECTED_MAX_MAE:.4f}"
     )
 
     print(
-        f"Reference Macro F1: "
-        f"{EXPECTED_REFERENCE_F1:.4f}"
+        f"Reference test MAE: "
+        f"{REFERENCE_TEST_MAE:.4f}"
     )
 
-    if (
-        metrics["macro_f1"]
-        < EXPECTED_MIN_F1
-    ):
+    print(
+        f"Actual test MAE: "
+        f"{metrics['mae']:.4f}"
+    )
+
+    if metrics["mae"] > EXPECTED_MAX_MAE:
+
         raise ValueError(
-            f"Reproduced model F1 "
-            f"{metrics['macro_f1']:.4f} "
-            f"is below threshold "
-            f"{EXPECTED_MIN_F1:.4f}. "
-            "Registration aborted."
+            f"Performance gate failed. "
+            f"Reproduced model MAE "
+            f"{metrics['mae']:.4f} "
+            f"is above the allowed maximum "
+            f"{EXPECTED_MAX_MAE:.4f}. "
+            "Model registration aborted."
         )
 
     print(
@@ -501,41 +482,63 @@ def main():
         )
 
         mlflow.log_param(
+            "target_type",
+            "regression",
+        )
+
+        mlflow.log_param(
+            "model_type",
+            "XGBRegressor",
+        )
+
+        mlflow.log_param(
             "random_seed",
             RANDOM_SEED,
         )
 
-
         mlflow.log_param(
             "model_selection",
-            "V2 localized tuning",
+            "two_stage_tuning",
         )
 
         mlflow.log_param(
             "selection_metric",
-            "test_macro_f1",
+            "mae",
         )
 
         mlflow.log_param(
-            "cv_folds",
-            5,
+            "expected_max_mae",
+            EXPECTED_MAX_MAE,
+        )
+
+
+
+        mlflow.log_metric(
+            "reference_test_mae",
+            REFERENCE_TEST_MAE,
         )
 
         mlflow.log_metric(
-            "reference_macro_f1",
-            EXPECTED_REFERENCE_F1,
+            "reference_test_rmse",
+            REFERENCE_TEST_RMSE,
         )
 
-        mlflow.set_tag(
-            "final_model_status",
-            "selected",
+        mlflow.log_metric(
+            "reference_test_r2",
+            REFERENCE_TEST_R2,
         )
-
 
 
         for parameter, value in (
             FINAL_MODEL_PARAMS.items()
         ):
+
+            if isinstance(
+                value,
+                (dict, list, tuple),
+            ):
+                value = str(value)
+
             mlflow.log_param(
                 parameter,
                 value,
@@ -544,23 +547,38 @@ def main():
 
 
         mlflow.log_metric(
-            "accuracy",
-            metrics["accuracy"],
+            "mae",
+            metrics["mae"],
         )
 
         mlflow.log_metric(
-            "macro_precision",
-            metrics["precision"],
+            "rmse",
+            metrics["rmse"],
         )
 
         mlflow.log_metric(
-            "macro_recall",
-            metrics["recall"],
+            "r2",
+            metrics["r2"],
         )
 
-        mlflow.log_metric(
-            "macro_f1",
-            metrics["macro_f1"],
+        mlflow.set_tag(
+            "problem_type",
+            "regression",
+        )
+
+        mlflow.set_tag(
+            "target",
+            TARGET,
+        )
+
+        mlflow.set_tag(
+            "final_model_status",
+            "selected",
+        )
+
+        mlflow.set_tag(
+            "performance_gate",
+            "passed",
         )
 
 
@@ -570,16 +588,13 @@ def main():
 
         artifacts = save_artifacts(
             model=model,
-            metrics=metrics,
+            X_test=X_test,
+            y_test=y_test,
             output_dir=artifact_dir,
         )
 
         mlflow.log_artifact(
-            artifacts["report"]
-        )
-
-        mlflow.log_artifact(
-            artifacts["confusion"]
+            artifacts["predictions"]
         )
 
         mlflow.log_artifact(
@@ -588,29 +603,26 @@ def main():
 
 
 
-        input_example = X_train.head(3)
+        input_example = X_train.head(1)
 
-        example_predictions = (
-            model.predict(
-                input_example
-            )
+        example_predictions = model.predict(
+            input_example
         )
 
         signature = infer_signature(
-            input_example,
+            X_train,
             example_predictions,
         )
 
 
-        model_info = (
-            mlflow.xgboost.log_model(
-                model,
-                artifact_path="model",
-                signature=signature,
-                input_example=input_example,
-                model_format="json",
-                registered_model_name=MODEL_NAME,
-            )
+
+        model_info = mlflow.xgboost.log_model(
+            model,
+            artifact_path="model",
+            signature=signature,
+            input_example=input_example,
+            model_format="json",
+            registered_model_name=MODEL_NAME,
         )
 
         print(
@@ -618,74 +630,90 @@ def main():
         )
 
         print(
-            f"Run ID: {run.info.run_id}"
+            f"Run ID     : "
+            f"{run.info.run_id}"
         )
 
         print(
-            f"Run URI: "
+            f"Run URI    : "
             f"{model_info.model_uri}"
         )
 
 
 
-        client = mlflow.MlflowClient(
-            tracking_uri=MLFLOW_TRACKING_URI
+    client = mlflow.MlflowClient(
+        tracking_uri=MLFLOW_TRACKING_URI
+    )
+
+    registered_versions = (
+        client.search_model_versions(
+            f"name='{MODEL_NAME}'"
+        )
+    )
+
+    matching_versions = [
+        version
+        for version in registered_versions
+        if version.run_id == run.info.run_id
+    ]
+
+    if not matching_versions:
+
+        raise RuntimeError(
+            "Model was logged successfully, "
+            "but the registered model version "
+            "could not be found for the current run."
         )
 
-        registered_versions = (
-            client.search_model_versions(
-                f"name='{MODEL_NAME}'"
-            )
-        )
+    registered_version = max(
+        matching_versions,
+        key=lambda version: int(
+            version.version
+        ),
+    )
 
-        if not registered_versions:
-            raise RuntimeError(
-                "Model was logged, but no registered "
-                "model versions were found."
-            )
+    version_number = str(
+        registered_version.version
+    )
 
-        registered_version = max(
-            registered_versions,
-            key=lambda version: int(
-                version.version
-            ),
-        )
 
-        version_number = str(
-            registered_version.version
-        )
 
-  
+    client.set_registered_model_alias(
+        name=MODEL_NAME,
+        alias=MODEL_ALIAS,
+        version=version_number,
+    )
 
-        client.set_registered_model_alias(
-            name=MODEL_NAME,
-            alias="champion",
-            version=version_number,
-        )
+    print(
+        f"\nAlias '{MODEL_ALIAS}' -> "
+        f"version {version_number}"
+    )
 
-        print(
-            f"\nAlias 'champion' -> "
-            f"version {version_number}"
-        )
+    print(
+        f"Registry URI: "
+        f"models:/{MODEL_NAME}@{MODEL_ALIAS}"
+    )
 
-        print(
-            f"Registry URI: "
-            f"models:/{MODEL_NAME}@champion"
-        )
 
-        print(
-            "\nModel registered successfully."
-        )
 
-        print(
-            f"Registered model: "
-            f"{MODEL_NAME}"
-        )
+    print(
+        "\nModel registered successfully."
+    )
 
-        print(
-            f"Registered version: "
-            f"{version_number}"
-        )
+    print(
+        f"Registered model: "
+        f"{MODEL_NAME}"
+    )
+
+    print(
+        f"Registered version: "
+        f"{version_number}"
+    )
+
+    print(
+        f"Champion alias: "
+        f"{MODEL_ALIAS}"
+    )
 
 
 if __name__ == "__main__":

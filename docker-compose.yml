@@ -120,6 +120,8 @@ services:
       - mlflow
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./monitoring/geography:/opt/project/monitoring/geography
 
   # ---------------------------------------------------------------------------
   # Vehicle API
